@@ -221,9 +221,43 @@ prompt_password() {
   printf '%s\n' "${value:-$generated_value}"
 }
 
+prompt_yes_no() {
+  local label="$1"
+  local default_answer="$2"
+  local suffix answer
+
+  if [[ "$default_answer" == "yes" ]]; then
+    suffix="[Y/n]"
+  else
+    suffix="[y/N]"
+  fi
+
+  printf '%s %s: ' "$label" "$suffix" >&2
+  read -r answer
+  answer="${answer:-$default_answer}"
+  [[ "$answer" =~ ^[Yy] ]]
+}
+
 prepare_panel_config() {
   local db_existed="$1"
   local default_user default_pass default_port default_path
+
+  if [[ "$db_existed" == "true" && "$FORCE_CONFIG" != "true" ]]; then
+    if [[ -z "$PANEL_USERNAME" && -z "$PANEL_PASSWORD" && -z "$PANEL_PORT" && -z "$PANEL_WEB_BASE_PATH" ]]; then
+      if [[ "$NO_CONFIG_PROMPT" != "true" && -t 0 ]]; then
+        log "Existing x-ui.db detected."
+        if prompt_yes_no "Reconfigure panel username, password, port and base path?" "no"; then
+          FORCE_CONFIG="true"
+        else
+          CONFIGURE_PANEL="false"
+          return 0
+        fi
+      else
+        CONFIGURE_PANEL="false"
+        return 0
+      fi
+    fi
+  fi
 
   if [[ "$db_existed" == "true" && "$FORCE_CONFIG" != "true" ]]; then
     if [[ -z "$PANEL_USERNAME" && -z "$PANEL_PASSWORD" && -z "$PANEL_PORT" && -z "$PANEL_WEB_BASE_PATH" ]]; then
