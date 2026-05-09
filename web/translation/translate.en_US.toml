@@ -217,6 +217,14 @@
 "importDatabaseError" = "An error occurred while importing the database."
 "readDatabaseError" = "An error occurred while reading the database."
 "getDatabaseError" = "An error occurred while retrieving the database."
+"panelCertPublicFile" = "Panel Certificate Public Key File"
+"panelCertPublicFileDesc" = "Download or upload the panel TLS public certificate file, usually fullchain.pem."
+"panelCertPrivateFile" = "Panel Certificate Private Key File"
+"panelCertPrivateFileDesc" = "Download or upload the panel TLS private key file, usually privkey.pem."
+"getPanelCertFileError" = "An error occurred while retrieving the panel certificate file."
+"readPanelCertFileError" = "An error occurred while reading the panel certificate file."
+"importPanelCertFileSuccess" = "The panel certificate file has been successfully imported."
+"importPanelCertFileError" = "An error occurred while importing the panel certificate file."
 "getConfigError" = "An error occurred while retrieving the config file."
 
 [pages.inbounds]

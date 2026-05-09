@@ -47,6 +47,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.GET("/getPanelUpdateInfo", a.getPanelUpdateInfo)
 	g.GET("/getConfigJson", a.getConfigJson)
 	g.GET("/getDb", a.getDb)
+	g.GET("/getPanelCertFile/:kind", a.getPanelCertFile)
 	g.GET("/getNewUUID", a.getNewUUID)
 	g.GET("/getNewX25519Cert", a.getNewX25519Cert)
 	g.GET("/getNewmldsa65", a.getNewmldsa65)
@@ -62,6 +63,7 @@ func (a *ServerController) initRouter(g *gin.RouterGroup) {
 	g.POST("/logs/:count", a.getLogs)
 	g.POST("/xraylogs/:count", a.getXrayLogs)
 	g.POST("/importDB", a.importDB)
+	g.POST("/importPanelCertFile/:kind", a.importPanelCertFile)
 	g.POST("/getNewEchCert", a.getNewEchCert)
 }
 
@@ -293,6 +295,24 @@ func (a *ServerController) getDb(c *gin.Context) {
 	c.Writer.Write(db)
 }
 
+// getPanelCertFile downloads the configured panel certificate public or private key file.
+func (a *ServerController) getPanelCertFile(c *gin.Context) {
+	fileContents, filename, err := a.serverService.GetPanelCertFile(c.Param("kind"))
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.index.getPanelCertFileError"), err)
+		return
+	}
+
+	if !isValidFilename(filename) {
+		c.AbortWithError(http.StatusBadRequest, fmt.Errorf("invalid filename"))
+		return
+	}
+
+	c.Header("Content-Type", "application/octet-stream")
+	c.Header("Content-Disposition", "attachment; filename="+filename)
+	c.Writer.Write(fileContents)
+}
+
 func isValidFilename(filename string) bool {
 	// Validate that the filename only contains allowed characters
 	return filenameRegex.MatchString(filename)
@@ -317,6 +337,23 @@ func (a *ServerController) importDB(c *gin.Context) {
 		return
 	}
 	jsonObj(c, I18nWeb(c, "pages.index.importDatabaseSuccess"), nil)
+}
+
+// importPanelCertFile imports the panel certificate public or private key file.
+func (a *ServerController) importPanelCertFile(c *gin.Context) {
+	file, _, err := c.Request.FormFile("cert")
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.index.readPanelCertFileError"), err)
+		return
+	}
+	defer file.Close()
+
+	err = a.serverService.ImportPanelCertFile(c.Param("kind"), file)
+	if err != nil {
+		jsonMsg(c, I18nWeb(c, "pages.index.importPanelCertFileError"), err)
+		return
+	}
+	jsonObj(c, I18nWeb(c, "pages.index.importPanelCertFileSuccess"), nil)
 }
 
 // getNewX25519Cert generates a new X25519 certificate.

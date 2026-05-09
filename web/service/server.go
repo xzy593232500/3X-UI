@@ -46,6 +46,8 @@ const (
 	Error   ProcessState = "error"   // Process is in error state
 )
 
+const maxPanelCertFileSize = 1024 * 1024
+
 // Status represents comprehensive system and application status information.
 // It includes CPU, memory, disk, network statistics, and Xray process status.
 type Status struct {
@@ -905,6 +907,107 @@ func (s *ServerService) GetDb() ([]byte, error) {
 	}
 
 	return fileContents, nil
+}
+
+func (s *ServerService) GetPanelCertFile(kind string) ([]byte, string, error) {
+	path, filename, err := s.getPanelCertFileInfo(kind, false)
+	if err != nil {
+		return nil, "", err
+	}
+	if path == "" {
+		return nil, "", common.NewError("panel certificate file path is not configured")
+	}
+
+	fileContents, err := os.ReadFile(path)
+	if err != nil {
+		return nil, "", common.NewErrorf("error reading panel certificate file: %v", err)
+	}
+
+	return fileContents, filename, nil
+}
+
+func (s *ServerService) ImportPanelCertFile(kind string, file multipart.File) error {
+	path, _, err := s.getPanelCertFileInfo(kind, true)
+	if err != nil {
+		return err
+	}
+
+	fileContents, err := io.ReadAll(io.LimitReader(file, maxPanelCertFileSize+1))
+	if err != nil {
+		return common.NewErrorf("error reading panel certificate upload: %v", err)
+	}
+	if len(fileContents) == 0 {
+		return common.NewError("panel certificate upload is empty")
+	}
+	if len(fileContents) > maxPanelCertFileSize {
+		return common.NewError("panel certificate upload is too large")
+	}
+	if !bytes.Contains(fileContents, []byte("-----BEGIN ")) || !bytes.Contains(fileContents, []byte("-----END ")) {
+		return common.NewError("panel certificate upload must be a PEM file")
+	}
+
+	if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return common.NewErrorf("error creating panel certificate directory: %v", err)
+	}
+
+	mode := os.FileMode(0644)
+	if kind == "private" {
+		mode = 0600
+	}
+	tempPath := fmt.Sprintf("%s.upload-%d", path, time.Now().UnixNano())
+	if err = os.WriteFile(tempPath, fileContents, mode); err != nil {
+		return common.NewErrorf("error saving panel certificate upload: %v", err)
+	}
+	if err = os.Rename(tempPath, path); err != nil {
+		if removeErr := os.Remove(path); removeErr != nil && !os.IsNotExist(removeErr) {
+			os.Remove(tempPath)
+			return common.NewErrorf("error replacing panel certificate file: %v", removeErr)
+		}
+		if renameErr := os.Rename(tempPath, path); renameErr != nil {
+			os.Remove(tempPath)
+			return common.NewErrorf("error replacing panel certificate file: %v", renameErr)
+		}
+	}
+	if err = os.Chmod(path, mode); err != nil {
+		return common.NewErrorf("error setting panel certificate permissions: %v", err)
+	}
+
+	settingService := SettingService{}
+	switch kind {
+	case "public":
+		return settingService.SetCertFile(path)
+	case "private":
+		return settingService.SetKeyFile(path)
+	default:
+		return common.NewError("invalid panel certificate file type")
+	}
+}
+
+func (s *ServerService) getPanelCertFileInfo(kind string, useDefault bool) (string, string, error) {
+	settingService := SettingService{}
+
+	switch kind {
+	case "public":
+		path, err := settingService.GetCertFile()
+		if err != nil {
+			return "", "", err
+		}
+		if path == "" && useDefault {
+			path = "/etc/x-ui/cert/fullchain.pem"
+		}
+		return path, "panel-cert-fullchain.pem", nil
+	case "private":
+		path, err := settingService.GetKeyFile()
+		if err != nil {
+			return "", "", err
+		}
+		if path == "" && useDefault {
+			path = "/etc/x-ui/cert/privkey.pem"
+		}
+		return path, "panel-cert-privkey.pem", nil
+	default:
+		return "", "", common.NewError("invalid panel certificate file type")
+	}
 }
 
 func (s *ServerService) ImportDB(file multipart.File) error {

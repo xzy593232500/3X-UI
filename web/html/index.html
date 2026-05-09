@@ -534,6 +534,26 @@
         </a-list-item-meta>
         <a-button @click="importDatabase()" type="primary" icon="upload" />
       </a-list-item>
+      <a-list-item class="ant-backup-list-item">
+        <a-list-item-meta>
+          <template #title>{{ i18n "pages.index.panelCertPublicFile" }}</template>
+          <template #description>{{ i18n "pages.index.panelCertPublicFileDesc" }}</template>
+        </a-list-item-meta>
+        <div style="display: flex; gap: 8px;">
+          <a-button @click="exportPanelCert('public')" type="primary" icon="download" />
+          <a-button @click="importPanelCert('public')" type="primary" icon="upload" />
+        </div>
+      </a-list-item>
+      <a-list-item class="ant-backup-list-item">
+        <a-list-item-meta>
+          <template #title>{{ i18n "pages.index.panelCertPrivateFile" }}</template>
+          <template #description>{{ i18n "pages.index.panelCertPrivateFileDesc" }}</template>
+        </a-list-item-meta>
+        <div style="display: flex; gap: 8px;">
+          <a-button @click="exportPanelCert('private')" type="primary" icon="download" />
+          <a-button @click="importPanelCert('private')" type="primary" icon="upload" />
+        </div>
+      </a-list-item>
     </a-list>
   </a-modal>
   <!-- CPU History Modal -->
@@ -1523,6 +1543,9 @@
       exportDatabase() {
         window.location = basePath + 'panel/api/server/getDb';
       },
+      exportPanelCert(kind) {
+        window.location = basePath + `panel/api/server/getPanelCertFile/${kind}`;
+      },
       importDatabase() {
         const fileInput = document.createElement('input');
         fileInput.type = 'file';
@@ -1535,6 +1558,38 @@
             backupModal.hide();
             this.loading(true);
             const uploadMsg = await HttpUtil.post('/panel/api/server/importDB', formData, {
+              headers: {
+                'Content-Type': 'multipart/form-data',
+              }
+            });
+            this.loading(false);
+            if (!uploadMsg.success) {
+              return;
+            }
+            this.loading(true);
+            const restartMsg = await HttpUtil.post("/panel/setting/restartPanel");
+            this.loading(false);
+            if (restartMsg.success) {
+              this.loading(true);
+              await PromiseUtil.sleep(5000);
+              location.reload();
+            }
+          }
+        });
+        fileInput.click();
+      },
+      importPanelCert(kind) {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.pem,.crt,.cer,.key,.txt';
+        fileInput.addEventListener('change', async (event) => {
+          const certFile = event.target.files[0];
+          if (certFile) {
+            const formData = new FormData();
+            formData.append('cert', certFile);
+            backupModal.hide();
+            this.loading(true);
+            const uploadMsg = await HttpUtil.post(`/panel/api/server/importPanelCertFile/${kind}`, formData, {
               headers: {
                 'Content-Type': 'multipart/form-data',
               }
