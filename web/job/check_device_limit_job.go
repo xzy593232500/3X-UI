@@ -3,6 +3,7 @@ package job
 import (
 	"bufio"
 	"encoding/json"
+	"io"
 	"os"
 	"regexp"
 	"sync"
@@ -124,7 +125,7 @@ func (j *CheckDeviceLimitJob) parseAccessLog() {
 		j.activeClientIPs[email][ip] = now
 	}
 
-	if pos, err := file.Seek(0, os.SEEK_CUR); err == nil {
+	if pos, err := file.Seek(0, io.SeekCurrent); err == nil {
 		j.lastPosition = pos
 	}
 }
