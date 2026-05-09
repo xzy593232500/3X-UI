@@ -910,7 +910,7 @@ func (s *ServerService) GetDb() ([]byte, error) {
 }
 
 func (s *ServerService) GetPanelCertFile(kind string) ([]byte, string, error) {
-	path, filename, err := s.getPanelCertFileInfo(kind, false)
+	path, filename, err := s.getPanelCertFileInfo(kind, true)
 	if err != nil {
 		return nil, "", err
 	}
