@@ -203,44 +203,6 @@
                     :row-class-name="dbInbound => (dbInbound.isMultiUser() ? '' : 'hideExpandIcon')"
                     :style="{ marginTop: '10px' }"
                     :locale='{ filterConfirm: `{{ i18n "confirm" }}`, filterReset: `{{ i18n "reset" }}`, emptyText: `{{ i18n "noData" }}` }'>
-                    <template slot="allTimeTrafficTitle">
-                      <span class="inbound-sort-title">
-                        <span>{{ i18n "pages.inbounds.allTimeTraffic" }}</span>
-                        <a-tooltip :overlay-class-name="themeSwitcher.currentTheme">
-                          <template slot="title">
-                            <template v-if="inboundSortKey === 'allTime'">
-                              {{ i18n "pages.inbounds.restoreDefaultSort" }}
-                            </template>
-                            <template v-else>
-                              {{ i18n "pages.inbounds.sortDesc" }}
-                            </template>
-                          </template>
-                          <a-button class="inbound-sort-button" size="small" shape="circle"
-                            :type="inboundSortKey === 'allTime' ? 'primary' : 'default'"
-                            :icon="inboundSortKey === 'allTime' ? 'sort-descending' : 'swap'"
-                            @click.stop="toggleInboundSort('allTime')"></a-button>
-                        </a-tooltip>
-                      </span>
-                    </template>
-                    <template slot="expiryTimeTitle">
-                      <span class="inbound-sort-title">
-                        <span>{{ i18n "pages.inbounds.expireDate" }}</span>
-                        <a-tooltip :overlay-class-name="themeSwitcher.currentTheme">
-                          <template slot="title">
-                            <template v-if="inboundSortKey === 'expiryTime'">
-                              {{ i18n "pages.inbounds.restoreDefaultSort" }}
-                            </template>
-                            <template v-else>
-                              {{ i18n "pages.inbounds.sortDesc" }}
-                            </template>
-                          </template>
-                          <a-button class="inbound-sort-button" size="small" shape="circle"
-                            :type="inboundSortKey === 'expiryTime' ? 'primary' : 'default'"
-                            :icon="inboundSortKey === 'expiryTime' ? 'sort-descending' : 'swap'"
-                            @click.stop="toggleInboundSort('expiryTime')"></a-button>
-                        </a-tooltip>
-                      </span>
-                    </template>
                     <template slot="action" slot-scope="text, dbInbound">
                       <a-dropdown :trigger="['click']">
                         <a-icon @click="e => e.preventDefault()" type="more"
@@ -959,6 +921,9 @@
   });
 </script>
 <script>
+  let app;
+  const inboundSortTitle = (sortKey, label) => () => app ? app.renderInboundSortTitle(sortKey, label) : label;
+
   const columns = [{
     title: "ID",
     align: 'right',
@@ -1018,20 +983,14 @@
       customRender: 'traffic'
     },
   }, {
-    title: '{{ i18n "pages.inbounds.allTimeTraffic" }}',
-    slots: {
-      title: 'allTimeTrafficTitle'
-    },
+    title: inboundSortTitle('allTime', '{{ i18n "pages.inbounds.allTimeTraffic" }}'),
     align: 'center',
     width: 80,
     scopedSlots: {
       customRender: 'allTimeInbound'
     },
   }, {
-    title: '{{ i18n "pages.inbounds.expireDate" }}',
-    slots: {
-      title: 'expiryTimeTitle'
-    },
+    title: inboundSortTitle('expiryTime', '{{ i18n "pages.inbounds.expireDate" }}'),
     align: 'center',
     width: 70,
     scopedSlots: {
@@ -1146,7 +1105,7 @@
     },
   ];
 
-  const app = new Vue({
+  app = new Vue({
     delimiters: ['[[', ']]'],
     el: '#app',
     mixins: [MediaQueryMixin],
@@ -1191,6 +1150,41 @@
     methods: {
       loading(spinning = true) {
         this.loadingStates.spinning = spinning;
+      },
+      renderInboundSortTitle(sortKey, label) {
+        const h = this.$createElement;
+        const active = this.inboundSortKey === sortKey;
+        const title = active ?
+          '{{ i18n "pages.inbounds.restoreDefaultSort" }}' :
+          '{{ i18n "pages.inbounds.sortDesc" }}';
+        return h('span', {
+          class: 'inbound-sort-title',
+        }, [
+          h('span', label),
+          h('button', {
+            class: {
+              'inbound-sort-button': true,
+              active: active,
+            },
+            attrs: {
+              type: 'button',
+              title: title,
+              'aria-label': title,
+            },
+            on: {
+              click: event => {
+                event.stopPropagation();
+                this.toggleInboundSort(sortKey);
+              },
+            },
+          }, [
+            h('a-icon', {
+              props: {
+                type: active ? 'sort-descending' : 'swap',
+              },
+            }),
+          ]),
+        ]);
       },
       async getDBInbounds() {
         this.refreshing = true;
@@ -2323,12 +2317,26 @@
     white-space: nowrap;
   }
 
-  .inbound-sort-button.ant-btn-sm {
+  .inbound-sort-button {
     width: 22px;
     min-width: 22px;
     height: 22px;
-    line-height: 20px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     padding: 0;
+    color: inherit;
+    background: transparent;
+    border: 1px solid currentColor;
+    border-radius: 50%;
+    cursor: pointer;
+    opacity: .65;
+  }
+
+  .inbound-sort-button:hover,
+  .inbound-sort-button.active {
+    color: var(--color-primary-100);
+    opacity: 1;
   }
 
   @media (max-width: 768px) {
