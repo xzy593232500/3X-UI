@@ -40,6 +40,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/你的GitHub用户名/你的
 ```
 
 安装过程中会提示您设置面板用户名、密码、端口和访问路径。
+安装完成后，脚本会输出浏览器登录网址、用户名和密码清单，方便您直接登录。
 
 如果您想把配置直接写在命令里，可以使用：
 
@@ -50,6 +51,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/你的GitHub用户名/你的
   --password '请改成强密码' \
   --port 2053 \
   --web-base-path /jbhd/ \
+  --public-host your-domain.com \
   --yes
 ```
 

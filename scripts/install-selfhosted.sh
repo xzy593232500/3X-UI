@@ -12,6 +12,7 @@ PANEL_USERNAME="${PANEL_USERNAME:-}"
 PANEL_PASSWORD="${PANEL_PASSWORD:-}"
 PANEL_PORT="${PANEL_PORT:-}"
 PANEL_WEB_BASE_PATH="${PANEL_WEB_BASE_PATH:-${PANEL_WEB_BASEPATH:-}}"
+PANEL_PUBLIC_HOST="${PANEL_PUBLIC_HOST:-}"
 CONFIGURE_PANEL="false"
 FULL_PANEL_CONFIG="false"
 
@@ -36,6 +37,7 @@ Optional:
   --password        Panel login password. Prompts when omitted on fresh install
   --port            Panel port. Prompts when omitted on fresh install
   --web-base-path   Panel base path, for example /jbhd/. Prompts when omitted on fresh install
+  --public-host     Hostname or IP to show in the final browser login URL
   --configure       Configure panel settings even when an existing x-ui.db is present
   --no-config-prompt
                     Do not ask panel setting questions; use provided values or secure defaults
@@ -51,6 +53,7 @@ Environment variables:
   PANEL_PORT        Same as --port
   PANEL_WEB_BASE_PATH
                     Same as --web-base-path
+  PANEL_PUBLIC_HOST Hostname or IP to show in the final browser login URL
 EOF
 }
 
@@ -316,6 +319,72 @@ apply_panel_config() {
   "$XUI_MAIN_FOLDER/x-ui" setting "${args[@]}" >/dev/null
 }
 
+detect_public_host() {
+  local host
+
+  if [[ -n "$PANEL_PUBLIC_HOST" ]]; then
+    printf '%s\n' "$PANEL_PUBLIC_HOST"
+    return 0
+  fi
+
+  host="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  if [[ -n "$host" ]]; then
+    printf '%s\n' "$host"
+    return 0
+  fi
+
+  if command -v hostname >/dev/null 2>&1; then
+    host="$(hostname -I 2>/dev/null | awk '{print $1}' || true)"
+    if [[ -n "$host" ]]; then
+      printf '%s\n' "$host"
+      return 0
+    fi
+  fi
+
+  printf '%s\n' "YOUR_SERVER_IP"
+}
+
+extract_setting_value() {
+  local output="$1"
+  local key="$2"
+
+  printf '%s\n' "$output" \
+    | sed -nE "s/^[[:space:]]*${key}:[[:space:]]*(.*)$/\\1/p" \
+    | tail -n 1
+}
+
+print_install_summary() {
+  local settings_output protocol public_host summary_port summary_path summary_username summary_password login_url
+
+  settings_output="$("$XUI_MAIN_FOLDER/x-ui" setting -show 2>/dev/null || true)"
+  protocol="http"
+  if printf '%s\n' "$settings_output" | grep -q "Panel is secure with SSL"; then
+    protocol="https"
+  fi
+
+  public_host="$(detect_public_host)"
+  summary_port="${PANEL_PORT:-$(extract_setting_value "$settings_output" "port")}"
+  summary_path="${PANEL_WEB_BASE_PATH:-$(extract_setting_value "$settings_output" "webBasePath")}"
+  summary_path="${summary_path:-/}"
+  summary_path="$(normalize_base_path "$summary_path")"
+
+  summary_username="${PANEL_USERNAME:-Preserved in existing x-ui.db}"
+  summary_password="${PANEL_PASSWORD:-Preserved in existing x-ui.db; plaintext password is not recoverable}"
+
+  if [[ -n "$summary_port" ]]; then
+    login_url="${protocol}://${public_host}:${summary_port}${summary_path}"
+  else
+    login_url="${protocol}://${public_host}${summary_path}"
+  fi
+
+  printf '\n'
+  log "Login summary:"
+  log "  Browser URL: $login_url"
+  log "  Username: $summary_username"
+  log "  Password: $summary_password"
+  printf '\n'
+}
+
 generate_service_file() {
   cat >"$1" <<EOF
 [Unit]
@@ -405,6 +474,8 @@ while [[ $# -gt 0 ]]; do
       PANEL_PORT="${2:-}"; shift 2 ;;
     --web-base-path|--webBasePath)
       PANEL_WEB_BASE_PATH="${2:-}"; shift 2 ;;
+    --public-host)
+      PANEL_PUBLIC_HOST="${2:-}"; shift 2 ;;
     --configure)
       FORCE_CONFIG="true"; shift ;;
     --no-config-prompt)
@@ -541,4 +612,5 @@ else
 fi
 
 log "Installation completed successfully"
+print_install_summary
 log "Backup directory: $BACKUP_DIR"
