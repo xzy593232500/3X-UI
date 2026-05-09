@@ -31,21 +31,21 @@ type deviceLimitInfo struct {
 // CheckDeviceLimitJob tracks active client IPs and temporarily invalidates
 // users that exceed the inbound-level device limit.
 type CheckDeviceLimitJob struct {
-	runLock           sync.Mutex
-	inboundService    service.InboundService
-	xrayService       *service.XrayService
-	xrayAPI           xray.XrayAPI
-	lastPosition      int64
-	activeClientIPs   map[string]map[string]time.Time
-	bannedClients     map[string]bool
+	runLock          sync.Mutex
+	inboundService   service.InboundService
+	xrayService      *service.XrayService
+	xrayAPI          xray.XrayAPI
+	lastPosition     int64
+	activeClientIPs  map[string]map[string]time.Time
+	bannedClients    map[string]bool
 	violationStarted map[string]time.Time
 }
 
 func NewCheckDeviceLimitJob(xrayService *service.XrayService) *CheckDeviceLimitJob {
 	return &CheckDeviceLimitJob{
-		xrayService:       xrayService,
-		activeClientIPs:   make(map[string]map[string]time.Time),
-		bannedClients:     make(map[string]bool),
+		xrayService:      xrayService,
+		activeClientIPs:  make(map[string]map[string]time.Time),
+		bannedClients:    make(map[string]bool),
 		violationStarted: make(map[string]time.Time),
 	}
 }
