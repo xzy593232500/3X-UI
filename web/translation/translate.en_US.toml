@@ -230,6 +230,8 @@
 [pages.inbounds]
 "allTimeTraffic" = "All-time Traffic"
 "allTimeTrafficUsage" = "All Time Total Usage"
+"sortDesc" = "Sort from high to low"
+"restoreDefaultSort" = "Restore default order"
 "title" = "Inbounds"
 "totalDownUp" = "Total Sent/Received"
 "totalUsage" = "Total Usage"

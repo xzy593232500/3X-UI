@@ -230,6 +230,8 @@
 [pages.inbounds]
 "allTimeTraffic" = "累计总流量"
 "allTimeTrafficUsage" = "所有时间总使用量"
+"sortDesc" = "从大到小排序"
+"restoreDefaultSort" = "恢复正常排序"
 "title" = "入站列表"
 "totalDownUp" = "总上传 / 下载"
 "totalUsage" = "总用量"

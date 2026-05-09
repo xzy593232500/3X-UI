@@ -203,6 +203,44 @@
                     :row-class-name="dbInbound => (dbInbound.isMultiUser() ? '' : 'hideExpandIcon')"
                     :style="{ marginTop: '10px' }"
                     :locale='{ filterConfirm: `{{ i18n "confirm" }}`, filterReset: `{{ i18n "reset" }}`, emptyText: `{{ i18n "noData" }}` }'>
+                    <template slot="allTimeTrafficTitle">
+                      <span class="inbound-sort-title">
+                        <span>{{ i18n "pages.inbounds.allTimeTraffic" }}</span>
+                        <a-tooltip :overlay-class-name="themeSwitcher.currentTheme">
+                          <template slot="title">
+                            <template v-if="inboundSortKey === 'allTime'">
+                              {{ i18n "pages.inbounds.restoreDefaultSort" }}
+                            </template>
+                            <template v-else>
+                              {{ i18n "pages.inbounds.sortDesc" }}
+                            </template>
+                          </template>
+                          <a-button class="inbound-sort-button" size="small" shape="circle"
+                            :type="inboundSortKey === 'allTime' ? 'primary' : 'default'"
+                            :icon="inboundSortKey === 'allTime' ? 'sort-descending' : 'swap'"
+                            @click.stop="toggleInboundSort('allTime')"></a-button>
+                        </a-tooltip>
+                      </span>
+                    </template>
+                    <template slot="expiryTimeTitle">
+                      <span class="inbound-sort-title">
+                        <span>{{ i18n "pages.inbounds.expireDate" }}</span>
+                        <a-tooltip :overlay-class-name="themeSwitcher.currentTheme">
+                          <template slot="title">
+                            <template v-if="inboundSortKey === 'expiryTime'">
+                              {{ i18n "pages.inbounds.restoreDefaultSort" }}
+                            </template>
+                            <template v-else>
+                              {{ i18n "pages.inbounds.sortDesc" }}
+                            </template>
+                          </template>
+                          <a-button class="inbound-sort-button" size="small" shape="circle"
+                            :type="inboundSortKey === 'expiryTime' ? 'primary' : 'default'"
+                            :icon="inboundSortKey === 'expiryTime' ? 'sort-descending' : 'swap'"
+                            @click.stop="toggleInboundSort('expiryTime')"></a-button>
+                        </a-tooltip>
+                      </span>
+                    </template>
                     <template slot="action" slot-scope="text, dbInbound">
                       <a-dropdown :trigger="['click']">
                         <a-icon @click="e => e.preventDefault()" type="more"
@@ -981,15 +1019,21 @@
     },
   }, {
     title: '{{ i18n "pages.inbounds.allTimeTraffic" }}',
+    slots: {
+      title: 'allTimeTrafficTitle'
+    },
     align: 'center',
-    width: 60,
+    width: 80,
     scopedSlots: {
       customRender: 'allTimeInbound'
     },
   }, {
     title: '{{ i18n "pages.inbounds.expireDate" }}',
+    slots: {
+      title: 'expiryTimeTitle'
+    },
     align: 'center',
-    width: 40,
+    width: 70,
     scopedSlots: {
       customRender: 'expiryTime'
     },
@@ -1119,6 +1163,7 @@
       enableFilter: false,
       filterBy: '',
       searchedInbounds: [],
+      inboundSortKey: '',
       expireDiff: 0,
       trafficDiff: 0,
       defaultCert: '',
@@ -1280,10 +1325,10 @@
       },
 
       searchInbounds(key) {
+        const rows = [];
         if (ObjectUtil.isEmpty(key)) {
-          this.searchedInbounds = this.dbInbounds.slice();
+          rows.push(...this.dbInbounds);
         } else {
-          this.searchedInbounds.splice(0, this.searchedInbounds.length);
           this.dbInbounds.forEach(inbound => {
             if (ObjectUtil.deepSearch(inbound, key)) {
               const newInbound = new DBInbound(inbound);
@@ -1299,16 +1344,17 @@
                 });
                 newInbound.settings = Inbound.Settings.fromJson(inbound.protocol, searchedSettings);
               }
-              this.searchedInbounds.push(newInbound);
+              rows.push(newInbound);
             }
           });
         }
+        this.setSearchedInbounds(rows);
       },
       filterInbounds() {
+        const rows = [];
         if (ObjectUtil.isEmpty(this.filterBy)) {
-          this.searchedInbounds = this.dbInbounds.slice();
+          rows.push(...this.dbInbounds);
         } else {
-          this.searchedInbounds.splice(0, this.searchedInbounds.length);
           this.dbInbounds.forEach(inbound => {
             const newInbound = new DBInbound(inbound);
             const inboundSettings = JSON.parse(inbound.settings);
@@ -1326,11 +1372,43 @@
                   });
                 }
                 newInbound.settings = Inbound.Settings.fromJson(inbound.protocol, filteredSettings);
-                this.searchedInbounds.push(newInbound);
+                rows.push(newInbound);
               }
             }
           });
         }
+        this.setSearchedInbounds(rows);
+      },
+      setSearchedInbounds(rows) {
+        this.searchedInbounds.splice(0, this.searchedInbounds.length, ...rows);
+        this.applyInboundSort();
+      },
+      toggleInboundSort(sortKey) {
+        this.inboundSortKey = this.inboundSortKey === sortKey ? '' : sortKey;
+        if (this.enableFilter) {
+          this.filterInbounds();
+        } else {
+          this.searchInbounds(this.searchKey);
+        }
+      },
+      applyInboundSort() {
+        if (!this.inboundSortKey) return;
+        const sortKey = this.inboundSortKey;
+        const getSortValue = (dbInbound) => {
+          if (sortKey === 'allTime') {
+            return Number(dbInbound.allTime || 0);
+          }
+          if (sortKey === 'expiryTime') {
+            const expiryTime = Number(dbInbound.expiryTime || 0);
+            return expiryTime === 0 ? Number.MAX_SAFE_INTEGER : expiryTime;
+          }
+          return 0;
+        };
+        this.searchedInbounds.sort((a, b) => {
+          const sortDiff = getSortValue(b) - getSortValue(a);
+          if (sortDiff !== 0) return sortDiff;
+          return Number(b.id || 0) - Number(a.id || 0);
+        });
       },
       toggleFilter() {
         if (this.enableFilter) {
@@ -2235,6 +2313,22 @@
     left: calc(50vw + 100px) !important;
     transform: translate(-50%, -50%);
     z-index: 99999 !important;
+  }
+
+  .inbound-sort-title {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    white-space: nowrap;
+  }
+
+  .inbound-sort-button.ant-btn-sm {
+    width: 22px;
+    min-width: 22px;
+    height: 22px;
+    line-height: 20px;
+    padding: 0;
   }
 
   @media (max-width: 768px) {
