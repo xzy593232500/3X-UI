@@ -6,6 +6,14 @@ GITHUB_REPO="${GITHUB_REPO:-}"
 INSTALL_VERSION="${INSTALL_VERSION:-latest}"
 ASSUME_YES="false"
 SKIP_START="false"
+NO_CONFIG_PROMPT="false"
+FORCE_CONFIG="false"
+PANEL_USERNAME="${PANEL_USERNAME:-}"
+PANEL_PASSWORD="${PANEL_PASSWORD:-}"
+PANEL_PORT="${PANEL_PORT:-}"
+PANEL_WEB_BASE_PATH="${PANEL_WEB_BASE_PATH:-${PANEL_WEB_BASEPATH:-}}"
+CONFIGURE_PANEL="false"
+FULL_PANEL_CONFIG="false"
 
 XUI_MAIN_FOLDER="${XUI_MAIN_FOLDER:-/usr/local/x-ui}"
 XUI_SERVICE="${XUI_SERVICE:-/etc/systemd/system}"
@@ -17,20 +25,32 @@ XUI_CLI_BIN="${XUI_CLI_BIN:-/usr/bin/x-ui}"
 usage() {
   cat <<'EOF'
 Usage:
-  ./scripts/install-selfhosted.sh --repo owner/repo [--version v1.2.3] [--yes]
+  ./scripts/install-selfhosted.sh --repo owner/repo [--version v1.2.3]
 
 Required:
   --repo            GitHub repository, for example: yourname/3x-ui
 
 Optional:
   --version         Release tag to install. Default: latest
-  --yes             Skip confirmation prompt
+  --username        Panel login username. Prompts when omitted on fresh install
+  --password        Panel login password. Prompts when omitted on fresh install
+  --port            Panel port. Prompts when omitted on fresh install
+  --web-base-path   Panel base path, for example /jbhd/. Prompts when omitted on fresh install
+  --configure       Configure panel settings even when an existing x-ui.db is present
+  --no-config-prompt
+                    Do not ask panel setting questions; use provided values or secure defaults
+  --yes             Skip installation confirmation prompt
   --skip-start      Install files but do not start x-ui
   --help            Show this help text
 
 Environment variables:
   GITHUB_REPO       Same as --repo
   INSTALL_VERSION   Same as --version
+  PANEL_USERNAME    Same as --username
+  PANEL_PASSWORD    Same as --password
+  PANEL_PORT        Same as --port
+  PANEL_WEB_BASE_PATH
+                    Same as --web-base-path
 EOF
 }
 
@@ -156,12 +176,110 @@ random_string() {
 pick_random_port() {
   local port
   while :; do
-    port="$(shuf -i 10240-62000 -n 1)"
+    if command -v shuf >/dev/null 2>&1; then
+      port="$(shuf -i 10240-62000 -n 1)"
+    else
+      port="$((10240 + RANDOM % 51761))"
+    fi
     if ! is_port_in_use "$port"; then
       printf '%s\n' "$port"
       return 0
     fi
   done
+}
+
+validate_port() {
+  local port="$1"
+  [[ "$port" =~ ^[0-9]+$ ]] || die "Invalid panel port: $port"
+  ((port >= 1 && port <= 65535)) || die "Panel port must be between 1 and 65535"
+}
+
+normalize_base_path() {
+  local base_path="$1"
+  [[ -n "$base_path" ]] || die "Panel base path can not be empty"
+  [[ "$base_path" == /* ]] || base_path="/$base_path"
+  [[ "$base_path" == */ ]] || base_path="$base_path/"
+  printf '%s\n' "$base_path"
+}
+
+prompt_value() {
+  local label="$1"
+  local default_value="$2"
+  local value
+  printf '%s [%s]: ' "$label" "$default_value" >&2
+  read -r value
+  printf '%s\n' "${value:-$default_value}"
+}
+
+prompt_password() {
+  local label="$1"
+  local generated_value="$2"
+  local value
+  printf '%s [press Enter to auto-generate]: ' "$label" >&2
+  read -rs value
+  printf '\n' >&2
+  printf '%s\n' "${value:-$generated_value}"
+}
+
+prepare_panel_config() {
+  local db_existed="$1"
+  local default_user default_pass default_port default_path
+
+  if [[ "$db_existed" == "true" && "$FORCE_CONFIG" != "true" ]]; then
+    if [[ -z "$PANEL_USERNAME" && -z "$PANEL_PASSWORD" && -z "$PANEL_PORT" && -z "$PANEL_WEB_BASE_PATH" ]]; then
+      CONFIGURE_PANEL="false"
+      return 0
+    fi
+    CONFIGURE_PANEL="true"
+    FULL_PANEL_CONFIG="false"
+    if [[ -n "$PANEL_USERNAME" || -n "$PANEL_PASSWORD" ]]; then
+      [[ -n "$PANEL_USERNAME" && -n "$PANEL_PASSWORD" ]] || die "--username and --password must be used together for an existing x-ui.db"
+    fi
+    [[ -z "$PANEL_PORT" ]] || validate_port "$PANEL_PORT"
+    [[ -z "$PANEL_WEB_BASE_PATH" ]] || PANEL_WEB_BASE_PATH="$(normalize_base_path "$PANEL_WEB_BASE_PATH")"
+    return 0
+  fi
+
+  CONFIGURE_PANEL="true"
+  FULL_PANEL_CONFIG="true"
+  default_user="$(random_string 10)"
+  default_pass="$(random_string 14)"
+  default_port="$(pick_random_port)"
+  default_path="/jbhd/"
+
+  if [[ "$NO_CONFIG_PROMPT" != "true" && -t 0 ]]; then
+    log "Panel configuration"
+    PANEL_USERNAME="${PANEL_USERNAME:-$(prompt_value 'Panel username' "$default_user")}"
+    PANEL_PASSWORD="${PANEL_PASSWORD:-$(prompt_password 'Panel password' "$default_pass")}"
+    PANEL_PORT="${PANEL_PORT:-$(prompt_value 'Panel port' "$default_port")}"
+    PANEL_WEB_BASE_PATH="${PANEL_WEB_BASE_PATH:-$(prompt_value 'Panel base path' "$default_path")}"
+  else
+    PANEL_USERNAME="${PANEL_USERNAME:-$default_user}"
+    PANEL_PASSWORD="${PANEL_PASSWORD:-$default_pass}"
+    PANEL_PORT="${PANEL_PORT:-$default_port}"
+    PANEL_WEB_BASE_PATH="${PANEL_WEB_BASE_PATH:-$default_path}"
+  fi
+
+  validate_port "$PANEL_PORT"
+  PANEL_WEB_BASE_PATH="$(normalize_base_path "$PANEL_WEB_BASE_PATH")"
+}
+
+apply_panel_config() {
+  local args=()
+
+  if [[ "$FULL_PANEL_CONFIG" == "true" || -n "$PANEL_USERNAME" || -n "$PANEL_PASSWORD" ]]; then
+    args+=(-username "$PANEL_USERNAME" -password "$PANEL_PASSWORD")
+  fi
+  if [[ "$FULL_PANEL_CONFIG" == "true" || -n "$PANEL_PORT" ]]; then
+    args+=(-port "$PANEL_PORT")
+  fi
+  if [[ "$FULL_PANEL_CONFIG" == "true" || -n "$PANEL_WEB_BASE_PATH" ]]; then
+    args+=(-webBasePath "$PANEL_WEB_BASE_PATH")
+  fi
+
+  ((${#args[@]} > 0)) || return 0
+  log "Applying panel settings"
+  "$XUI_MAIN_FOLDER/x-ui" setting "${args[@]}" >/dev/null
 }
 
 generate_service_file() {
@@ -245,6 +363,18 @@ while [[ $# -gt 0 ]]; do
       GITHUB_REPO="${2:-}"; shift 2 ;;
     --version)
       INSTALL_VERSION="${2:-}"; shift 2 ;;
+    --username)
+      PANEL_USERNAME="${2:-}"; shift 2 ;;
+    --password)
+      PANEL_PASSWORD="${2:-}"; shift 2 ;;
+    --port)
+      PANEL_PORT="${2:-}"; shift 2 ;;
+    --web-base-path|--webBasePath)
+      PANEL_WEB_BASE_PATH="${2:-}"; shift 2 ;;
+    --configure)
+      FORCE_CONFIG="true"; shift ;;
+    --no-config-prompt)
+      NO_CONFIG_PROMPT="true"; shift ;;
     --yes)
       ASSUME_YES="true"; shift ;;
     --skip-start)
@@ -298,6 +428,8 @@ if [[ -f "$XUI_DB_FOLDER/x-ui.db" ]]; then
   DB_EXISTED="true"
 fi
 
+prepare_panel_config "$DB_EXISTED"
+
 log "Downloading release archive"
 curl -fL "$DOWNLOAD_URL" -o "$ARCHIVE_PATH"
 
@@ -341,6 +473,9 @@ systemctl enable x-ui >/dev/null 2>&1 || true
 
 if [[ "$SKIP_START" == "true" ]]; then
   log "Installation finished. x-ui service was not started because --skip-start was used."
+  if [[ "$CONFIGURE_PANEL" == "true" ]]; then
+    log "Panel settings were collected but not applied because --skip-start was used."
+  fi
   exit 0
 fi
 
@@ -349,25 +484,24 @@ systemctl start x-ui
 sleep 3
 systemctl is-active x-ui >/dev/null
 
-if [[ "$DB_EXISTED" == "false" ]]; then
-  log "Fresh installation detected, generating temporary secure panel settings"
-  RANDOM_PORT="$(pick_random_port)"
-  RANDOM_USER="$(random_string 10)"
-  RANDOM_PASS="$(random_string 12)"
-  RANDOM_PATH="$(random_string 18)"
-  "$XUI_MAIN_FOLDER/x-ui" setting \
-    -username "$RANDOM_USER" \
-    -password "$RANDOM_PASS" \
-    -port "$RANDOM_PORT" \
-    -webBasePath "$RANDOM_PATH" >/dev/null
+if [[ "$CONFIGURE_PANEL" == "true" ]]; then
+  apply_panel_config
   systemctl restart x-ui
   sleep 2
-  log "Temporary panel settings:"
-  log "  username: $RANDOM_USER"
-  log "  password: $RANDOM_PASS"
-  log "  port: $RANDOM_PORT"
-  log "  webBasePath: $RANDOM_PATH"
-  log "These settings will be replaced if you later upload your own x-ui.db."
+  if [[ "$FULL_PANEL_CONFIG" == "true" ]]; then
+    log "Panel settings:"
+    log "  username: $PANEL_USERNAME"
+    log "  password: $PANEL_PASSWORD"
+    log "  port: $PANEL_PORT"
+    log "  webBasePath: $PANEL_WEB_BASE_PATH"
+    log "These settings will be replaced if you later upload your own x-ui.db."
+  else
+    log "Updated panel settings:"
+    [[ -z "$PANEL_USERNAME" ]] || log "  username: $PANEL_USERNAME"
+    [[ -z "$PANEL_PASSWORD" ]] || log "  password: $PANEL_PASSWORD"
+    [[ -z "$PANEL_PORT" ]] || log "  port: $PANEL_PORT"
+    [[ -z "$PANEL_WEB_BASE_PATH" ]] || log "  webBasePath: $PANEL_WEB_BASE_PATH"
+  fi
 else
   log "Existing x-ui.db detected, panel settings were preserved."
 fi

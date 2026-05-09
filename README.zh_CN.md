@@ -36,7 +36,20 @@ bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.
 
 ```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/你的GitHub用户名/你的仓库名/main/scripts/install-selfhosted.sh) \
+  --repo 你的GitHub用户名/你的仓库名
+```
+
+安装过程中会提示您设置面板用户名、密码、端口和访问路径。
+
+如果您想把配置直接写在命令里，可以使用：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/你的GitHub用户名/你的仓库名/main/scripts/install-selfhosted.sh) \
   --repo 你的GitHub用户名/你的仓库名 \
+  --username admin \
+  --password '请改成强密码' \
+  --port 2053 \
+  --web-base-path /jbhd/ \
   --yes
 ```
 
@@ -45,7 +58,8 @@ bash <(curl -fsSL https://raw.githubusercontent.com/你的GitHub用户名/你的
 - 该脚本会从您自己仓库的 GitHub Release 下载 `x-ui-linux-架构.tar.gz` 安装包。
 - 您需要先把当前仓库推送到自己的 GitHub 仓库，并创建一个标签发布，让 Actions 生成 Release 资产。
 - 脚本不做迁移；数据库和证书可以在安装完成后由您自己上传覆盖。
-- 如果服务器上没有现成数据库，脚本会先生成一组临时的随机面板账号、密码、端口和路径，避免默认 `admin/admin` 暴露在公网。
+- 如果服务器上没有现成数据库，脚本会进入配置流程；直接回车会使用安全随机账号、密码、端口，路径默认 `/jbhd/`。
+- 如果服务器上已有 `/etc/x-ui/x-ui.db`，脚本默认保留原面板设置；如需强制重新设置，可附加 `--configure`。
 
 ## 一键迁移到当前改版
 
