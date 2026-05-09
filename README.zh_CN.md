@@ -1,0 +1,108 @@
+[English](/README.md) | [فارسی](/README.fa_IR.md) | [العربية](/README.ar_EG.md) | [中文](/README.zh_CN.md) | [Español](/README.es_ES.md) | [Русский](/README.ru_RU.md)
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="./media/3x-ui-dark.png">
+    <img alt="3x-ui" src="./media/3x-ui-light.png">
+  </picture>
+</p>
+
+[![Release](https://img.shields.io/github/v/release/mhsanaei/3x-ui.svg)](https://github.com/MHSanaei/3x-ui/releases)
+[![Build](https://img.shields.io/github/actions/workflow/status/mhsanaei/3x-ui/release.yml.svg)](https://github.com/MHSanaei/3x-ui/actions)
+[![GO Version](https://img.shields.io/github/go-mod/go-version/mhsanaei/3x-ui.svg)](#)
+[![Downloads](https://img.shields.io/github/downloads/mhsanaei/3x-ui/total.svg)](https://github.com/MHSanaei/3x-ui/releases/latest)
+[![License](https://img.shields.io/badge/license-GPL%20V3-blue.svg?longCache=true)](https://www.gnu.org/licenses/gpl-3.0.en.html)
+[![Go Reference](https://pkg.go.dev/badge/github.com/mhsanaei/3x-ui/v2.svg)](https://pkg.go.dev/github.com/mhsanaei/3x-ui/v2)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mhsanaei/3x-ui/v2)](https://goreportcard.com/report/github.com/mhsanaei/3x-ui/v2)
+
+**3X-UI** — 一个基于网页的高级开源控制面板，专为管理 Xray-core 服务器而设计。它提供了用户友好的界面，用于配置和监控各种 VPN 和代理协议。
+
+> [!IMPORTANT]
+> 本项目仅用于个人使用和通信，请勿将其用于非法目的，请勿在生产环境中使用。
+
+作为原始 X-UI 项目的增强版本，3X-UI 提供了更好的稳定性、更广泛的协议支持和额外的功能。
+
+## 快速开始
+
+```
+bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.sh)
+```
+
+完整文档请参阅 [项目Wiki](https://github.com/MHSanaei/3x-ui/wiki)。
+
+## 自托管一键安装
+
+如果您只想在新服务器上一键安装您自己的改版 `3x-ui`，不需要迁移数据库，可以使用：
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/你的GitHub用户名/你的仓库名/main/scripts/install-selfhosted.sh) \
+  --repo 你的GitHub用户名/你的仓库名 \
+  --yes
+```
+
+说明：
+
+- 该脚本会从您自己仓库的 GitHub Release 下载 `x-ui-linux-架构.tar.gz` 安装包。
+- 您需要先把当前仓库推送到自己的 GitHub 仓库，并创建一个标签发布，让 Actions 生成 Release 资产。
+- 脚本不做迁移；数据库和证书可以在安装完成后由您自己上传覆盖。
+- 如果服务器上没有现成数据库，脚本会先生成一组临时的随机面板账号、密码、端口和路径，避免默认 `admin/admin` 暴露在公网。
+
+## 一键迁移到当前改版
+
+如果您已经有一台运行中的 `x-ui` 服务器，并且想把另一台服务器迁移到当前改版，可以使用仓库内的迁移脚本：
+
+```bash
+chmod +x ./scripts/migrate-3x-ui.sh
+./scripts/migrate-3x-ui.sh \
+  --source-host 旧服务器IP或域名 \
+  --source-pass '旧服务器SSH密码' \
+  --target-host 新服务器IP或域名 \
+  --target-pass '新服务器SSH密码' \
+  --yes
+```
+
+如果您想做成真正的“自托管一键命令”，把 [scripts/migrate-3x-ui.sh](/scripts/migrate-3x-ui.sh) 放到您自己的域名、对象存储或 GitHub Raw 后，可以直接这样运行：
+
+```bash
+bash <(curl -fsSL https://你的域名或raw地址/migrate-3x-ui.sh) \
+  --source-host 旧服务器IP或域名 \
+  --source-pass '旧服务器SSH密码' \
+  --target-host 新服务器IP或域名 \
+  --target-pass '新服务器SSH密码' \
+  --yes
+```
+
+说明：
+
+- 目标服务器如果还没有安装 `x-ui`，脚本会自动完成基础安装并迁移源服务器数据库。
+- 该脚本默认保留目标服务器自己的 `/etc/x-ui/x-ui.db`；如果需要完整迁移源服务器数据，可附加 `--copy-db`。
+- 全新裸机场景下，脚本会自动同步 `xray` 内核、`.dat` 文件、面板命令行工具和 systemd 服务文件。
+- 如果要强制同步源服务器的 `xray` 内核和 `.dat` 文件，可附加 `--copy-xray`。
+- 当前脚本已经做成单文件自举模式，可以直接用于 `curl | bash`。
+- 执行脚本的本地机器需要安装 `sshpass`。
+
+## 特别感谢
+
+- [alireza0](https://github.com/alireza0/)
+
+## 致谢
+
+- [Iran v2ray rules](https://github.com/chocolate4u/Iran-v2ray-rules) (许可证: **GPL-3.0**): _增强的 v2ray/xray 和 v2ray/xray-clients 路由规则，内置伊朗域名，专注于安全性和广告拦截。_
+- [Russia v2ray rules](https://github.com/runetfreedom/russia-v2ray-rules-dat) (许可证: **GPL-3.0**): _此仓库包含基于俄罗斯被阻止域名和地址数据自动更新的 V2Ray 路由规则。_
+
+## 支持项目
+
+**如果这个项目对您有帮助，您可以给它一个**:star2:
+
+<a href="https://www.buymeacoffee.com/MHSanaei" target="_blank">
+<img src="./media/default-yellow.png" alt="Buy Me A Coffee" style="height: 70px !important;width: 277px !important;" >
+</a>
+
+</br>
+<a href="https://nowpayments.io/donation/hsanaei" target="_blank" rel="noreferrer noopener">
+   <img src="./media/donation-button-black.svg" alt="Crypto donation button by NOWPayments">
+</a>
+
+## 随时间变化的星标数
+
+[![Stargazers over time](https://starchart.cc/MHSanaei/3x-ui.svg?variant=adaptive)](https://starchart.cc/MHSanaei/3x-ui)
