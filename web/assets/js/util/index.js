@@ -522,7 +522,16 @@ class Wireguard {
 }
 
 class ClipboardManager {
-    static copyText(content = "") {
+    static async copyText(content = "") {
+        if (navigator.clipboard && window.isSecureContext) {
+            try {
+                await navigator.clipboard.writeText(content);
+                return true;
+            } catch {
+                // Fallback to the legacy path below for browsers that deny the modern API.
+            }
+        }
+
         // !! here old way of copying is used because not everyone can afford https connection
         return new Promise((resolve) => {
             try {
@@ -540,12 +549,13 @@ class ClipboardManager {
 
                 window.document.body.appendChild(textarea);
 
+                textarea.focus();
                 textarea.select();
-                window.document.execCommand("copy");
+                const copied = window.document.execCommand("copy");
 
                 window.document.body.removeChild(textarea);
 
-                resolve(true)
+                resolve(copied)
             } catch {
                 resolve(false)
             }

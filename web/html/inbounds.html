@@ -1549,6 +1549,10 @@
       },
       async addInbound(inbound, dbInbound) {
         const existingIds = new Set(this.dbInbounds.map(row => Number(row.id)));
+        const pendingVmessLink = this.getFirstVmessLinkFromInbound(inbound, dbInbound.remark);
+        const pendingVmessCopy = pendingVmessLink ?
+          ClipboardManager.copyText(pendingVmessLink) :
+          Promise.resolve(false);
         const data = {
           up: dbInbound.up,
           down: dbInbound.down,
@@ -1581,7 +1585,7 @@
 
         const msg = await this.submit('/panel/api/inbounds/add', data, inModal);
         if (msg.success) {
-          await this.copyCreatedVmessLink(existingIds, data);
+          await this.finishCreatedVmessCopy(existingIds, data, pendingVmessCopy, pendingVmessLink);
         }
       },
       async updateInbound(inbound, dbInbound) {
@@ -1874,6 +1878,14 @@
         }
         return msg;
       },
+      getFirstVmessLinkFromInbound(inbound, remark) {
+        if (!inbound || inbound.protocol !== Protocols.VMESS) {
+          return "";
+        }
+        return (inbound.genInboundLinks(remark, this.remarkModel) || "")
+          .split(/\r?\n/)
+          .find(link => link.startsWith("vmess://")) || "";
+      },
       findCreatedInbound(existingIds, data) {
         const addedInbounds = this.dbInbounds
           .filter(row => !existingIds.has(Number(row.id)))
@@ -1887,23 +1899,27 @@
           .filter(row => row.protocol === data.protocol && Number(row.port) === port)
           .sort((a, b) => Number(b.id || 0) - Number(a.id || 0))[0] || null;
       },
-      async copyCreatedVmessLink(existingIds, data) {
+      async finishCreatedVmessCopy(existingIds, data, pendingVmessCopy, pendingVmessLink) {
         if (data.protocol !== Protocols.VMESS) {
           return;
         }
-        const dbInbound = this.findCreatedInbound(existingIds, data);
-        if (!dbInbound) {
+        if (await pendingVmessCopy) {
+          this.$message.success('{{ i18n "copied" }}');
           return;
         }
-        const links = this.checkFallback(dbInbound).genInboundLinks(this.remarkModel);
+        const dbInbound = this.findCreatedInbound(existingIds, data);
+        const links = dbInbound ? this.checkFallback(dbInbound).genInboundLinks(this.remarkModel) : "";
         const vmessLink = (links || "")
           .split(/\r?\n/)
-          .find(link => link.startsWith("vmess://"));
+          .find(link => link.startsWith("vmess://")) || pendingVmessLink;
         if (!vmessLink) {
           return;
         }
-        await ClipboardManager.copyText(vmessLink);
-        this.$message.success('{{ i18n "copied" }}');
+        if (await ClipboardManager.copyText(vmessLink)) {
+          this.$message.success('{{ i18n "copied" }}');
+        } else {
+          this.$message.warning('自动复制失败，请手动复制链接');
+        }
       },
       getInboundClients(dbInbound) {
         if (!dbInbound) return null;
