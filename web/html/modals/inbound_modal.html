@@ -282,6 +282,29 @@
             },
             setInboundExpiry(amount, unit) {
                 this.dbInbound._expiryTime = moment().add(amount, unit);
+                this.confirmInboundExpiryPicker();
+            },
+            confirmInboundExpiryPicker() {
+                this.$nextTick(() => {
+                    const calendars = Array.from(document.querySelectorAll(".ant-calendar-picker-container"));
+                    const visibleCalendar = calendars
+                        .reverse()
+                        .find((calendar) => calendar.offsetParent !== null && calendar.style.display !== "none");
+                    const okButton = visibleCalendar ? visibleCalendar.querySelector(".ant-calendar-ok-btn") : null;
+                    if (okButton && !okButton.classList.contains("ant-calendar-ok-btn-disabled")) {
+                        okButton.click();
+                        return;
+                    }
+                    document.dispatchEvent(new KeyboardEvent("keydown", {
+                        key: "Escape",
+                        keyCode: 27,
+                        which: 27,
+                        bubbles: true,
+                    }));
+                    if (document.activeElement && typeof document.activeElement.blur === "function") {
+                        document.activeElement.blur();
+                    }
+                });
             },
             isInboundSocksProxyEnabled() {
                 const enabled = this.dbInbound && this.dbInbound.socksProxyEnabled;
