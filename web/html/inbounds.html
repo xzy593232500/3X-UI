@@ -20,7 +20,7 @@
             <a-col>
               <a-card size="small" :style="{ padding: '16px' }" hoverable>
                 <a-row>
-                  <a-col :sm="12" :md="5">
+                  <a-col :sm="12" :md="4">
                     <a-custom-statistic title='{{ i18n "pages.inbounds.totalDownUp" }}'
                       :value="`${SizeFormatter.sizeFormat(total.up)} / ${SizeFormatter.sizeFormat(total.down)}`">
                       <template #prefix>
@@ -28,7 +28,7 @@
                       </template>
                     </a-custom-statistic>
                   </a-col>
-                  <a-col :sm="12" :md="5">
+                  <a-col :sm="12" :md="4">
                     <a-custom-statistic title='{{ i18n "pages.inbounds.totalUsage" }}'
                       :value="SizeFormatter.sizeFormat(total.up + total.down)"
                       :style="{ marginTop: isMobile ? '10px' : 0 }">
@@ -37,7 +37,7 @@
                       </template>
                     </a-custom-statistic>
                   </a-col>
-                  <a-col :sm="12" :md="5">
+                  <a-col :sm="12" :md="4">
                     <a-custom-statistic title='{{ i18n "pages.inbounds.allTimeTrafficUsage" }}'
                       :value="SizeFormatter.sizeFormat(total.allTime)" :style="{ marginTop: isMobile ? '10px' : 0 }">
                       <template #prefix>
@@ -45,7 +45,7 @@
                       </template>
                     </a-custom-statistic>
                   </a-col>
-                  <a-col :sm="12" :md="5">
+                  <a-col :sm="12" :md="4">
                     <a-custom-statistic title='{{ i18n "pages.inbounds.inboundCount" }}' :value="dbInbounds.length"
                       :style="{ marginTop: isMobile ? '10px' : 0 }">
                       <template #prefix>
@@ -100,6 +100,17 @@
                         </a-space>
                       </template>
                     </a-custom-statistic>
+                  </a-col>
+                  <a-col :sm="12" :md="4">
+                    <div class="traffic-reset-stat-action" :style="{ marginTop: isMobile ? '10px' : 0 }">
+                      <a-popconfirm placement="bottomRight" title='{{ i18n "pages.inbounds.resetAllTrafficContent" }}'
+                        ok-text='{{ i18n "reset" }}' cancel-text='{{ i18n "cancel" }}'
+                        :overlay-class-name="themeSwitcher.currentTheme" @confirm="submit('/panel/api/inbounds/resetAllTraffics')">
+                        <a-button type="primary" ghost icon="reload">
+                          {{ i18n "pages.inbounds.resetAllTraffic" }}
+                        </a-button>
+                      </a-popconfirm>
+                    </div>
                   </a-col>
                 </a-row>
               </a-card>
@@ -2391,9 +2402,27 @@
     opacity: 1;
   }
 
+  .traffic-reset-stat-action {
+    height: 100%;
+    min-height: 54px;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+  }
+
+  .traffic-reset-stat-action .ant-btn {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   @media (max-width: 768px) {
     #content-layout>.ant-layout-content>.ant-spin-nested-loading>div>.ant-spin {
       left: 50vw !important;
+    }
+
+    .traffic-reset-stat-action {
+      justify-content: flex-start;
     }
   }
 </style>
