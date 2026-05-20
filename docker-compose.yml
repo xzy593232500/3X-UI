@@ -3,14 +3,20 @@ services:
     build:
       context: .
       dockerfile: ./Dockerfile
+    image: "${XUI_IMAGE:-3x-ui-jbhd:local}"
     container_name: 3xui_app
-    # hostname: yourhostname <- optional
+    # hostname: yourhostname
     volumes:
-      - $PWD/db/:/etc/x-ui/
-      - $PWD/cert/:/root/cert/
+      # Panel database and runtime config.
+      - "${XUI_DATA_DIR:-./db}/:/etc/x-ui/"
+      # Optional TLS certificate directory used by the panel.
+      - "${XUI_CERT_DIR:-./cert}/:/root/cert/"
     environment:
-      XRAY_VMESS_AEAD_FORCED: "false"
-      XUI_ENABLE_FAIL2BAN: "true"
+      TZ: "${TZ:-Asia/Shanghai}"
+      XRAY_VMESS_AEAD_FORCED: "${XRAY_VMESS_AEAD_FORCED:-false}"
+      XUI_ENABLE_FAIL2BAN: "${XUI_ENABLE_FAIL2BAN:-true}"
     tty: true
+    # Host network is required so panel ports and Xray inbound ports are
+    # exposed directly on the VPS without extra port mapping.
     network_mode: host
     restart: unless-stopped

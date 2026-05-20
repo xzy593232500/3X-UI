@@ -30,6 +30,10 @@ bash <(curl -Ls https://raw.githubusercontent.com/mhsanaei/3x-ui/master/install.
 
 For full documentation, please visit the [project Wiki](https://github.com/MHSanaei/3x-ui/wiki).
 
+## Docker Deployment
+
+This fork includes a ready-to-use Docker Compose setup. See [DOCKER_DEPLOY.md](/DOCKER_DEPLOY.md) for VPS deployment, updates, backup, and troubleshooting.
+
 ## A Special Thanks to
 
 - [alireza0](https://github.com/alireza0/)
