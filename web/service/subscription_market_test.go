@@ -109,7 +109,7 @@ proxies:
 	if parsed.Scheme != "hysteria2" || parsed.Host != "hy2.example.com:8443" {
 		t.Fatalf("unexpected hysteria2 link: %s", nodes[0].Link)
 	}
-	if password, _ := parsed.User.Password(); password != "secret-pass" {
+	if password := parsed.User.Username(); password != "secret-pass" {
 		t.Fatalf("unexpected hysteria2 password: %q", password)
 	}
 	query := parsed.Query()

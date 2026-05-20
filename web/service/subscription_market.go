@@ -1243,6 +1243,12 @@ func clashStringAny(value any) string {
 		return strconv.Itoa(v)
 	case int64:
 		return strconv.FormatInt(v, 10)
+	case uint:
+		return strconv.FormatUint(uint64(v), 10)
+	case uint64:
+		return strconv.FormatUint(v, 10)
+	case uint32:
+		return strconv.FormatUint(uint64(v), 10)
 	case float64:
 		return strconv.FormatInt(int64(v), 10)
 	case bool:
@@ -1264,6 +1270,12 @@ func clashIntAny(value any) int {
 	case int:
 		return v
 	case int64:
+		return int(v)
+	case uint:
+		return int(v)
+	case uint64:
+		return int(v)
+	case uint32:
 		return int(v)
 	case float64:
 		return int(v)
