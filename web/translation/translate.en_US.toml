@@ -94,6 +94,8 @@
 "ultraDark" = "Ultra Dark"
 "dashboard" = "Overview"
 "inbounds" = "Inbounds"
+"upstreamSubscriptions" = "Upstream Subscriptions"
+"customerSubscriptions" = "Customer Subscriptions"
 "settings" = "Panel Settings"
 "xray" = "Xray Configs"
 "logout" = "Log Out"

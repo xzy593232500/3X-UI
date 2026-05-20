@@ -94,6 +94,8 @@
 "ultraDark" = "超暗色"
 "dashboard" = "系统状态"
 "inbounds" = "入站列表"
+"upstreamSubscriptions" = "上游订阅"
+"customerSubscriptions" = "客户订阅"
 "settings" = "面板设置"
 "xray" = "Xray 设置"
 "logout" = "退出登录"

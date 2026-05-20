@@ -46,11 +46,11 @@ func (a *XUIController) inbounds(c *gin.Context) {
 }
 
 func (a *XUIController) upstreamSubscriptions(c *gin.Context) {
-	html(c, "upstream_subscriptions.html", "upstreamSubscriptions", nil)
+	html(c, "upstream_subscriptions.html", "menu.upstreamSubscriptions", nil)
 }
 
 func (a *XUIController) customerSubscriptions(c *gin.Context) {
-	html(c, "customer_subscriptions.html", "customerSubscriptions", nil)
+	html(c, "customer_subscriptions.html", "menu.customerSubscriptions", nil)
 }
 
 // settings renders the settings management page.
