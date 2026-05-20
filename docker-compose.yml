@@ -15,6 +15,7 @@ services:
       TZ: "${TZ:-Asia/Shanghai}"
       XRAY_VMESS_AEAD_FORCED: "${XRAY_VMESS_AEAD_FORCED:-false}"
       XUI_ENABLE_FAIL2BAN: "${XUI_ENABLE_FAIL2BAN:-true}"
+      XUI_PUBLIC_SUB_BASE_URL: "${XUI_PUBLIC_SUB_BASE_URL:-}"
     tty: true
     # Host network is required so panel ports and Xray inbound ports are
     # exposed directly on the VPS without extra port mapping.

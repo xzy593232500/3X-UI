@@ -89,6 +89,15 @@ docker compose logs -f
 http://你的服务器IP:2053/
 ```
 
+如果客户所在网络不方便访问非常规端口，可以在服务器 Nginx 上把 `/customer-sub/`
+反代到面板端口，并在 `.env.docker` 中设置公开订阅地址：
+
+```env
+XUI_PUBLIC_SUB_BASE_URL=http://你的服务器IP
+```
+
+设置后，客户订阅页面生成的客户订阅链接会优先使用这个公开地址。
+
 默认账号密码通常是：
 
 ```text

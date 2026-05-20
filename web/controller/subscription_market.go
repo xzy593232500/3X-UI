@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
@@ -318,6 +319,11 @@ func parsePositiveID(c *gin.Context, value string) (int, bool) {
 }
 
 func buildCustomerSubscriptionURL(c *gin.Context, token string) string {
+	path := buildCustomerSubscriptionPath(c, token)
+	if publicBaseURL := strings.TrimSpace(os.Getenv("XUI_PUBLIC_SUB_BASE_URL")); publicBaseURL != "" {
+		return strings.TrimRight(publicBaseURL, "/") + path
+	}
+
 	scheme := "http"
 	if c.Request.TLS != nil || strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https") {
 		scheme = "https"
@@ -332,6 +338,10 @@ func buildCustomerSubscriptionURL(c *gin.Context, token string) string {
 	if host == "" {
 		host = "localhost"
 	}
+	return fmt.Sprintf("%s://%s%s", scheme, host, path)
+}
+
+func buildCustomerSubscriptionPath(c *gin.Context, token string) string {
 	basePath := c.GetString("base_path")
 	if basePath == "" {
 		basePath = "/"
@@ -340,7 +350,10 @@ func buildCustomerSubscriptionURL(c *gin.Context, token string) string {
 	if strings.HasPrefix(path, "//") {
 		path = strings.TrimPrefix(path, "/")
 	}
-	return fmt.Sprintf("%s://%s%s", scheme, host, path)
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return path
 }
 
 func writeCustomerSubscriptionError(c *gin.Context, err error) {
