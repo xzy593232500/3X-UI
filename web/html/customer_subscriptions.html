@@ -15,12 +15,9 @@
             </a-space>
           </template>
           <a-table row-key="id" :columns="customerColumns" :data-source="customers" :pagination="{ pageSize: 10 }"
-            size="middle" :scroll="{ x: 1220 }">
+            size="middle" :scroll="{ x: 1120 }">
             <template slot="enable" slot-scope="text, record">
               <a-switch :checked="record.enable" @change="checked => toggleCustomer(record, checked)"></a-switch>
-            </template>
-            <template slot="status" slot-scope="text, record">
-              <a-tag :color="customerStatusColor(record)">[[ customerStatus(record) ]]</a-tag>
             </template>
             <template slot="expiry" slot-scope="text, record">
               <a-popover v-if="record.expiryTime > 0" :overlay-class-name="themeSwitcher.currentTheme">
@@ -85,28 +82,32 @@
           <a-tag color="green">仅显示已启用的上游节点</a-tag>
         </a-space>
         <div class="node-checkbox-group">
-          <div v-for="group in groupedNodes" :key="group.upstreamId" class="node-group">
-            <div class="node-group-title">
-              <a-checkbox :checked="isGroupAllSelected(customerModal.form.nodeIds, group)"
-                :indeterminate="isGroupPartSelected(customerModal.form.nodeIds, group)"
-                @change="event => setGroupSelected(customerModal.form, 'nodeIds', group, event.target.checked)">
-                [[ group.name ]]
-              </a-checkbox>
-              <a-space>
-                <a-button size="small" @click="setGroupSelected(customerModal.form, 'nodeIds', group, true)">全选</a-button>
-                <a-button size="small" @click="setGroupSelected(customerModal.form, 'nodeIds', group, false)">清空</a-button>
-              </a-space>
-            </div>
-            <a-row :gutter="[8,8]">
-              <a-col v-for="node in group.nodes" :key="node.id" :span="isMobile ? 24 : 12">
-                <a-checkbox :checked="isNodeSelected(customerModal.form.nodeIds, node.id)"
-                  @change="event => setNodeSelected(customerModal.form, 'nodeIds', node.id, event.target.checked)">
-                  <span class="node-name">[[ node.name ]]</span>
-                  <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+          <a-collapse :active-key="customerModal.activeGroupKeys"
+            @change="keys => customerModal.activeGroupKeys = normalizeCollapseKeys(keys)" :bordered="false"
+            class="node-collapse">
+            <a-collapse-panel v-for="group in groupedNodes" :key="group.key" :header="groupHeader(group)">
+              <div class="node-group-tools">
+                <a-checkbox :checked="isGroupAllSelected(customerModal.form.nodeIds, group)"
+                  :indeterminate="isGroupPartSelected(customerModal.form.nodeIds, group)"
+                  @change="event => setGroupSelected(customerModal.form, 'nodeIds', group, event.target.checked)">
+                  整个订阅
                 </a-checkbox>
-              </a-col>
-            </a-row>
-          </div>
+                <a-space>
+                  <a-button size="small" @click="setGroupSelected(customerModal.form, 'nodeIds', group, true)">全选</a-button>
+                  <a-button size="small" @click="setGroupSelected(customerModal.form, 'nodeIds', group, false)">清空</a-button>
+                </a-space>
+              </div>
+              <a-row :gutter="[8,8]">
+                <a-col v-for="node in group.nodes" :key="node.id" :span="isMobile ? 24 : 12">
+                  <a-checkbox :checked="isNodeSelected(customerModal.form.nodeIds, node.id)"
+                    @change="event => setNodeSelected(customerModal.form, 'nodeIds', node.id, event.target.checked)">
+                    <span class="node-name">[[ node.name ]]</span>
+                    <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+                  </a-checkbox>
+                </a-col>
+              </a-row>
+            </a-collapse-panel>
+          </a-collapse>
           <a-empty v-if="groupedNodes.length === 0" description="暂无可用上游节点"></a-empty>
         </div>
       </a-form-item>
@@ -130,13 +131,6 @@
         customRender: 'enable'
       },
       width: 80
-    },
-    {
-      title: '状态',
-      scopedSlots: {
-        customRender: 'status'
-      },
-      width: 90
     },
     {
       title: '节点数',
@@ -196,6 +190,7 @@
           expiryTime: 0,
           nodeIds: [],
         },
+        activeGroupKeys: [],
       },
     },
     computed: {
@@ -205,6 +200,7 @@
           const upstreamId = node.upstreamId || 0;
           if (!map[upstreamId]) {
             map[upstreamId] = {
+              key: String(upstreamId),
               upstreamId,
               name: node.upstreamName || '未分组',
               nodes: [],
@@ -243,6 +239,7 @@
             expiryTime: record.expiryTime || 0,
             nodeIds: Array.isArray(record.nodeIds) ? record.nodeIds.slice() : [],
           };
+          this.customerModal.activeGroupKeys = [];
         } else {
           this.customerModal.editId = null;
           this.customerModal.expiryMoment = null;
@@ -252,6 +249,7 @@
             expiryTime: 0,
             nodeIds: this.nodes.map(node => node.id),
           };
+          this.customerModal.activeGroupKeys = [];
         }
         this.customerModal.visible = true;
       },
@@ -342,15 +340,16 @@
         const selectedCount = group.nodes.filter(node => this.isNodeSelected(selectedIds, node.id)).length;
         return selectedCount > 0 && selectedCount < group.nodes.length;
       },
-      customerStatus(record) {
-        if (!record.enable) return '停用';
-        if (record.expiryTime > 0 && record.expiryTime <= Date.now()) return '已到期';
-        return '启用';
+      groupSelectedCount(selectedIds, group) {
+        return group.nodes.filter(node => this.isNodeSelected(selectedIds, node.id)).length;
       },
-      customerStatusColor(record) {
-        if (!record.enable) return 'red';
-        if (record.expiryTime > 0 && record.expiryTime <= Date.now()) return 'orange';
-        return 'green';
+      groupHeader(group) {
+        return `${group.name}（已选 ${this.groupSelectedCount(this.customerModal.form.nodeIds, group)} / ${group.nodes.length}）`;
+      },
+      normalizeCollapseKeys(keys) {
+        if (Array.isArray(keys)) return keys;
+        if (keys === undefined || keys === null || keys === '') return [];
+        return [String(keys)];
       },
       formatRemainingDays(value) {
         const expiresAt = Number(value || 0);
@@ -398,26 +397,27 @@
     padding-right: 6px;
   }
 
-  .node-group {
-    border-top: 1px solid rgba(127, 127, 127, .18);
-    padding: 12px 0;
+  .node-collapse {
+    background: transparent;
   }
 
-  .node-group:first-child {
-    border-top: 0;
-    padding-top: 0;
+  .node-collapse .ant-collapse-item {
+    border-bottom-color: rgba(127, 127, 127, .18);
   }
 
-  .node-group-title {
+  .node-collapse .ant-collapse-header {
+    font-weight: 600;
+  }
+
+  .node-group-tools {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
-    font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
 
-  .node-group-title .ant-space {
+  .node-group-tools .ant-space {
     width: auto;
   }
 
@@ -435,7 +435,7 @@
       max-width: 260px;
     }
 
-    .node-group-title {
+    .node-group-tools {
       align-items: flex-start;
       flex-direction: column;
     }

@@ -100,8 +100,8 @@
     :class="themeSwitcher.currentTheme" width="980px">
     <a-alert type="info" show-icon message="关闭的节点不会出现在客户添加页，也不会输出到客户订阅或入站订阅。"
       class="mb-10"></a-alert>
-    <a-table row-key="id" :columns="nodeColumns" :data-source="nodeModal.nodes" :pagination="{ pageSize: 12 }"
-      size="middle" :scroll="{ x: 900 }">
+    <a-table row-key="id" :columns="nodeColumns" :data-source="nodeModal.nodes" :pagination="false" size="middle"
+      :scroll="{ x: 900, y: 520 }">
       <template slot="enable" slot-scope="text, record">
         <a-switch :checked="record.enable" @change="checked => toggleNode(record, checked)"></a-switch>
       </template>
