@@ -1,0 +1,345 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' upstream-subscriptions-page'">
+  <a-sidebar></a-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loading" :delay="300" tip="加载中" size="large">
+        <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 8 : 16]">
+          <a-col :span="24">
+            <a-card size="small" title="上游订阅">
+              <template #extra>
+                <a-space>
+                  <a-button icon="reload" @click="loadAll"></a-button>
+                  <a-button type="primary" icon="plus" @click="openUpstreamModal()">添加上游</a-button>
+                </a-space>
+              </template>
+              <a-table row-key="id" :columns="upstreamColumns" :data-source="upstreams" :pagination="{ pageSize: 8 }"
+                size="middle" :scroll="{ x: 980 }">
+                <template slot="enable" slot-scope="text, record">
+                  <a-switch :checked="record.enable" @change="checked => toggleUpstream(record, checked)"></a-switch>
+                </template>
+                <template slot="traffic" slot-scope="text, record">
+                  <a-space direction="vertical" size="small">
+                    <span>已用 [[ formatTraffic(record.upload + record.download) ]]</span>
+                    <span>总量 [[ record.total > 0 ? formatTraffic(record.total) : '未知' ]]</span>
+                  </a-space>
+                </template>
+                <template slot="expiry" slot-scope="text, record">
+                  <span>[[ formatDateMs(record.expiryTime) ]]</span>
+                </template>
+                <template slot="lastFetchedAt" slot-scope="text, record">
+                  <a-space direction="vertical" size="small">
+                    <span>[[ formatUnix(record.lastFetchedAt) ]]</span>
+                    <a-tag v-if="record.lastError" color="red">[[ record.lastError ]]</a-tag>
+                  </a-space>
+                </template>
+                <template slot="nodes" slot-scope="text, record">
+                  <a-tag color="green">[[ record.nodes ? record.nodes.length : 0 ]]</a-tag>
+                </template>
+                <template slot="action" slot-scope="text, record">
+                  <a-space>
+                    <a-button size="small" icon="sync" :loading="syncingId === record.id"
+                      @click="syncUpstream(record)"></a-button>
+                    <a-button size="small" icon="edit" @click="openUpstreamModal(record)"></a-button>
+                    <a-button size="small" icon="delete" type="danger" @click="confirmDeleteUpstream(record)"></a-button>
+                  </a-space>
+                </template>
+              </a-table>
+            </a-card>
+          </a-col>
+
+          <a-col :span="24">
+            <a-card size="small" title="上游节点">
+              <template #extra>
+                <a-tag color="blue">关闭的节点不会出现在客户添加页，也不会输出到客户订阅</a-tag>
+              </template>
+              <a-table row-key="id" :columns="nodeColumns" :data-source="nodes" :pagination="{ pageSize: 12 }"
+                size="middle" :scroll="{ x: 980 }">
+                <template slot="enable" slot-scope="text, record">
+                  <a-switch :checked="record.enable" @change="checked => toggleNode(record, checked)"></a-switch>
+                </template>
+                <template slot="sourceType" slot-scope="text, record">
+                  <a-tag :color="record.sourceType === 'clash' ? 'purple' : 'green'">[[ record.sourceType ]]</a-tag>
+                </template>
+                <template slot="link" slot-scope="text, record">
+                  <a-tooltip :title="record.link">
+                    <span class="node-link">[[ record.link || 'Clash YAML 节点' ]]</span>
+                  </a-tooltip>
+                </template>
+              </a-table>
+            </a-card>
+          </a-col>
+        </a-row>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+
+  <a-modal v-model="upstreamModal.visible" :title="upstreamModal.editId ? '编辑上游订阅' : '添加上游订阅'"
+    :confirm-loading="upstreamModal.saving" :class="themeSwitcher.currentTheme" @ok="submitUpstream">
+    <a-form layout="vertical">
+      <a-form-item label="名称">
+        <a-input v-model="upstreamModal.form.name" placeholder="例如：香港备用机场"></a-input>
+      </a-form-item>
+      <a-form-item label="订阅链接">
+        <a-input v-model="upstreamModal.form.url" placeholder="https://..."></a-input>
+      </a-form-item>
+      <a-form-item label="启用">
+        <a-switch v-model="upstreamModal.form.enable"></a-switch>
+      </a-form-item>
+    </a-form>
+  </a-modal>
+</a-layout>
+
+{{template "page/body_scripts" .}}
+<script>
+  const upstreamColumns = [{
+      title: '名称',
+      dataIndex: 'name',
+      width: 160,
+      ellipsis: true
+    },
+    {
+      title: '启用',
+      dataIndex: 'enable',
+      scopedSlots: {
+        customRender: 'enable'
+      },
+      width: 90
+    },
+    {
+      title: '节点',
+      scopedSlots: {
+        customRender: 'nodes'
+      },
+      width: 90
+    },
+    {
+      title: '流量',
+      scopedSlots: {
+        customRender: 'traffic'
+      },
+      width: 180
+    },
+    {
+      title: '到期',
+      scopedSlots: {
+        customRender: 'expiry'
+      },
+      width: 160
+    },
+    {
+      title: '最近同步',
+      scopedSlots: {
+        customRender: 'lastFetchedAt'
+      },
+      width: 220
+    },
+    {
+      title: '订阅链接',
+      dataIndex: 'url',
+      ellipsis: true
+    },
+    {
+      title: '操作',
+      scopedSlots: {
+        customRender: 'action'
+      },
+      width: 150,
+      fixed: 'right'
+    },
+  ];
+
+  const nodeColumns = [{
+      title: '节点名',
+      dataIndex: 'name',
+      width: 220,
+      ellipsis: true
+    },
+    {
+      title: '上游',
+      dataIndex: 'upstreamName',
+      width: 160,
+      ellipsis: true
+    },
+    {
+      title: '协议',
+      dataIndex: 'protocol',
+      width: 100
+    },
+    {
+      title: '类型',
+      scopedSlots: {
+        customRender: 'sourceType'
+      },
+      width: 110
+    },
+    {
+      title: '启用',
+      scopedSlots: {
+        customRender: 'enable'
+      },
+      width: 90
+    },
+    {
+      title: '节点链接',
+      scopedSlots: {
+        customRender: 'link'
+      },
+    },
+  ];
+
+  new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#app',
+    mixins: [MediaQueryMixin],
+    data: {
+      themeSwitcher,
+      loading: false,
+      upstreamColumns,
+      nodeColumns,
+      upstreams: [],
+      nodes: [],
+      syncingId: null,
+      upstreamModal: {
+        visible: false,
+        saving: false,
+        editId: null,
+        form: {
+          name: '',
+          url: '',
+          enable: true,
+        },
+      },
+    },
+    methods: {
+      async loadAll() {
+        this.loading = true;
+        try {
+          const upstreamMsg = await HttpUtil.get('/panel/api/subscription-market/upstreams/list');
+          if (upstreamMsg.success && Array.isArray(upstreamMsg.obj)) {
+            this.upstreams = upstreamMsg.obj;
+          }
+          const nodeMsg = await HttpUtil.get('/panel/api/subscription-market/nodes/list');
+          if (nodeMsg.success && Array.isArray(nodeMsg.obj)) {
+            this.nodes = nodeMsg.obj;
+          }
+        } finally {
+          this.loading = false;
+        }
+      },
+      openUpstreamModal(record) {
+        if (record) {
+          this.upstreamModal.editId = record.id;
+          this.upstreamModal.form = {
+            name: record.name,
+            url: record.url,
+            enable: !!record.enable,
+          };
+        } else {
+          this.upstreamModal.editId = null;
+          this.upstreamModal.form = {
+            name: '',
+            url: '',
+            enable: true,
+          };
+        }
+        this.upstreamModal.visible = true;
+      },
+      async submitUpstream() {
+        const form = this.upstreamModal.form;
+        if (!form.name || !form.url) {
+          this.$message.error('名称和订阅链接不能为空');
+          return;
+        }
+        this.upstreamModal.saving = true;
+        try {
+          const url = this.upstreamModal.editId ?
+            `/panel/api/subscription-market/upstreams/update/${this.upstreamModal.editId}` :
+            '/panel/api/subscription-market/upstreams/add';
+          const msg = await HttpUtil.post(url, form);
+          if (msg.success) {
+            this.upstreamModal.visible = false;
+            await this.loadAll();
+          }
+        } finally {
+          this.upstreamModal.saving = false;
+        }
+      },
+      async syncUpstream(record) {
+        this.syncingId = record.id;
+        try {
+          await HttpUtil.post(`/panel/api/subscription-market/upstreams/sync/${record.id}`);
+          await this.loadAll();
+        } finally {
+          this.syncingId = null;
+        }
+      },
+      async toggleUpstream(record, checked) {
+        const msg = await HttpUtil.post(`/panel/api/subscription-market/upstreams/toggle/${record.id}`, {
+          enable: checked
+        });
+        if (msg.success) {
+          record.enable = checked;
+          await this.loadAll();
+        }
+      },
+      async toggleNode(record, checked) {
+        const msg = await HttpUtil.post(`/panel/api/subscription-market/nodes/toggle/${record.id}`, {
+          enable: checked
+        });
+        if (msg.success) {
+          record.enable = checked;
+        }
+      },
+      confirmDeleteUpstream(record) {
+        this.$confirm({
+          title: '删除上游订阅',
+          content: `确定删除「${record.name}」及其所有节点授权吗？`,
+          okText: '删除',
+          cancelText: '取消',
+          class: themeSwitcher.currentTheme,
+          onOk: async () => {
+            const msg = await HttpUtil.post(`/panel/api/subscription-market/upstreams/delete/${record.id}`);
+            if (msg.success) {
+              await this.loadAll();
+            }
+          },
+        });
+      },
+      formatTraffic(value) {
+        return SizeFormatter.sizeFormat(Number(value || 0));
+      },
+      formatDateMs(value) {
+        if (!value) return '未知';
+        return IntlUtil.formatDate(Number(value));
+      },
+      formatUnix(value) {
+        if (!value) return '-';
+        return IntlUtil.formatDate(Number(value) * 1000);
+      },
+    },
+    mounted() {
+      this.loadAll();
+    },
+  });
+</script>
+<style>
+  .node-link {
+    display: inline-block;
+    max-width: 520px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  @media (max-width: 768px) {
+    .node-link {
+      max-width: 260px;
+    }
+  }
+</style>
+{{ template "page/body_end" .}}

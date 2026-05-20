@@ -135,6 +135,59 @@ type CustomGeoResource struct {
 	UpdatedAt     int64  `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`
 }
 
+// UpstreamSubscription stores a remote provider subscription URL whose nodes
+// can be filtered and re-published to downstream customers.
+type UpstreamSubscription struct {
+	Id            int            `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`
+	Name          string         `json:"name" form:"name" gorm:"not null"`
+	Url           string         `json:"url" form:"url" gorm:"not null"`
+	Enable        bool           `json:"enable" form:"enable" gorm:"default:true"`
+	Upload        int64          `json:"upload" form:"upload" gorm:"default:0"`
+	Download      int64          `json:"download" form:"download" gorm:"default:0"`
+	Total         int64          `json:"total" form:"total" gorm:"default:0"`
+	ExpiryTime    int64          `json:"expiryTime" form:"expiryTime" gorm:"default:0"`
+	LastFetchedAt int64          `json:"lastFetchedAt" form:"lastFetchedAt" gorm:"default:0;column:last_fetched_at"`
+	LastError     string         `json:"lastError" form:"lastError" gorm:"column:last_error"`
+	CreatedAt     int64          `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt     int64          `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`
+	Nodes         []UpstreamNode `gorm:"foreignKey:UpstreamId;references:Id"`
+}
+
+// UpstreamNode is one parsed node from an upstream subscription.
+type UpstreamNode struct {
+	Id         int    `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`
+	UpstreamId int    `json:"upstreamId" form:"upstreamId" gorm:"index;column:upstream_id"`
+	Name       string `json:"name" form:"name"`
+	Protocol   string `json:"protocol" form:"protocol" gorm:"index"`
+	Link       string `json:"link" form:"link" gorm:"type:text"`
+	Clash      string `json:"clash" form:"clash" gorm:"type:text"`
+	SourceType string `json:"sourceType" form:"sourceType" gorm:"default:uri;column:source_type"`
+	Hash       string `json:"hash" form:"hash" gorm:"uniqueIndex:idx_upstream_node_hash"`
+	Enable     bool   `json:"enable" form:"enable" gorm:"default:true"`
+	Sort       int    `json:"sort" form:"sort" gorm:"default:0"`
+	CreatedAt  int64  `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt  int64  `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`
+}
+
+// CustomerSubscription represents a downstream customer subscription token.
+type CustomerSubscription struct {
+	Id         int    `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`
+	Name       string `json:"name" form:"name" gorm:"not null"`
+	Token      string `json:"token" form:"token" gorm:"uniqueIndex;not null"`
+	Enable     bool   `json:"enable" form:"enable" gorm:"default:true"`
+	ExpiryTime int64  `json:"expiryTime" form:"expiryTime" gorm:"default:0"`
+	CreatedAt  int64  `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt  int64  `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`
+}
+
+// CustomerSubscriptionNode grants one customer access to one upstream node.
+type CustomerSubscriptionNode struct {
+	Id         int   `json:"id" gorm:"primaryKey;autoIncrement"`
+	CustomerId int   `json:"customerId" form:"customerId" gorm:"uniqueIndex:idx_customer_node;column:customer_id"`
+	NodeId     int   `json:"nodeId" form:"nodeId" gorm:"uniqueIndex:idx_customer_node;column:node_id"`
+	CreatedAt  int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+}
+
 // Client represents a client configuration for Xray inbounds with traffic limits and settings.
 type Client struct {
 	ID         string `json:"id,omitempty"`                 // Unique client identifier

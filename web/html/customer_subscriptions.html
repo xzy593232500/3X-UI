@@ -1,0 +1,334 @@
+{{ template "page/head_start" .}}
+{{ template "page/head_end" .}}
+
+{{ template "page/body_start" .}}
+<a-layout id="app" v-cloak :class="themeSwitcher.currentTheme + ' customer-subscriptions-page'">
+  <a-sidebar></a-sidebar>
+  <a-layout id="content-layout">
+    <a-layout-content>
+      <a-spin :spinning="loading" :delay="300" tip="加载中" size="large">
+        <a-card size="small" title="客户订阅">
+          <template #extra>
+            <a-space>
+              <a-button icon="reload" @click="loadAll"></a-button>
+              <a-button type="primary" icon="user-add" @click="openCustomerModal()">添加客户</a-button>
+            </a-space>
+          </template>
+          <a-table row-key="id" :columns="customerColumns" :data-source="customers" :pagination="{ pageSize: 10 }"
+            size="middle" :scroll="{ x: 1080 }">
+            <template slot="enable" slot-scope="text, record">
+              <a-tag :color="record.enable ? 'green' : 'red'">[[ record.enable ? '启用' : '停用' ]]</a-tag>
+            </template>
+            <template slot="expiry" slot-scope="text, record">
+              <span>[[ formatDateMs(record.expiryTime) ]]</span>
+            </template>
+            <template slot="createdAt" slot-scope="text, record">
+              <span>[[ formatUnix(record.createdAt) ]]</span>
+            </template>
+            <template slot="nodes" slot-scope="text, record">
+              <a-tag color="blue">[[ record.nodeCount ]]</a-tag>
+            </template>
+            <template slot="subscriptionUrl" slot-scope="text, record">
+              <a-space>
+                <a-tooltip :title="record.subscriptionUrl">
+                  <span class="subscription-link">[[ record.subscriptionUrl ]]</span>
+                </a-tooltip>
+                <a-button size="small" icon="copy" @click="copySubscription(record.subscriptionUrl)"></a-button>
+              </a-space>
+            </template>
+            <template slot="action" slot-scope="text, record">
+              <a-space>
+                <a-button size="small" icon="edit" @click="openCustomerModal(record)"></a-button>
+                <a-button size="small" icon="delete" type="danger" @click="confirmDeleteCustomer(record)"></a-button>
+              </a-space>
+            </template>
+          </a-table>
+        </a-card>
+      </a-spin>
+    </a-layout-content>
+  </a-layout>
+
+  <a-modal v-model="customerModal.visible" :title="customerModal.editId ? '编辑客户' : '添加客户'"
+    :confirm-loading="customerModal.saving" :class="themeSwitcher.currentTheme" width="760px" @ok="submitCustomer">
+    <a-form layout="vertical">
+      <a-row :gutter="16">
+        <a-col :span="isMobile ? 24 : 12">
+          <a-form-item label="客户名称">
+            <a-input v-model="customerModal.form.name" placeholder="例如：客户 A"></a-input>
+          </a-form-item>
+        </a-col>
+        <a-col :span="isMobile ? 24 : 12">
+          <a-form-item label="使用到期时间">
+            <a-date-picker v-model="customerModal.expiryMoment" show-time format="YYYY-MM-DD HH:mm:ss"
+              :allow-clear="true" class="w-100"></a-date-picker>
+          </a-form-item>
+        </a-col>
+      </a-row>
+      <a-form-item label="启用客户订阅">
+        <a-switch v-model="customerModal.form.enable"></a-switch>
+      </a-form-item>
+      <a-form-item label="可使用节点">
+        <a-space class="mb-10">
+          <a-button size="small" icon="check-square" @click="selectAllNodes">全选</a-button>
+          <a-button size="small" icon="minus-square" @click="customerModal.form.nodeIds = []">清空</a-button>
+          <a-tag color="green">仅显示已启用的上游节点</a-tag>
+        </a-space>
+        <a-checkbox-group v-model="customerModal.form.nodeIds" class="node-checkbox-group">
+          <div v-for="group in groupedNodes" :key="group.name" class="node-group">
+            <div class="node-group-title">[[ group.name ]]</div>
+            <a-row :gutter="[8,8]">
+              <a-col v-for="node in group.nodes" :key="node.id" :span="isMobile ? 24 : 12">
+                <a-checkbox :value="node.id">
+                  <span class="node-name">[[ node.name ]]</span>
+                  <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+                </a-checkbox>
+              </a-col>
+            </a-row>
+          </div>
+        </a-checkbox-group>
+      </a-form-item>
+    </a-form>
+  </a-modal>
+</a-layout>
+
+{{template "page/body_scripts" .}}
+<script>
+  const customerColumns = [{
+      title: '客户',
+      dataIndex: 'name',
+      width: 160,
+      ellipsis: true
+    },
+    {
+      title: '状态',
+      scopedSlots: {
+        customRender: 'enable'
+      },
+      width: 90
+    },
+    {
+      title: '节点数',
+      scopedSlots: {
+        customRender: 'nodes'
+      },
+      width: 90
+    },
+    {
+      title: '到期',
+      scopedSlots: {
+        customRender: 'expiry'
+      },
+      width: 180
+    },
+    {
+      title: '订阅日期',
+      scopedSlots: {
+        customRender: 'createdAt'
+      },
+      width: 180
+    },
+    {
+      title: '客户订阅链接',
+      scopedSlots: {
+        customRender: 'subscriptionUrl'
+      },
+    },
+    {
+      title: '操作',
+      scopedSlots: {
+        customRender: 'action'
+      },
+      width: 120,
+      fixed: 'right'
+    },
+  ];
+
+  new Vue({
+    delimiters: ['[[', ']]'],
+    el: '#app',
+    mixins: [MediaQueryMixin],
+    data: {
+      themeSwitcher,
+      loading: false,
+      customerColumns,
+      customers: [],
+      nodes: [],
+      customerModal: {
+        visible: false,
+        saving: false,
+        editId: null,
+        expiryMoment: null,
+        form: {
+          name: '',
+          enable: true,
+          expiryTime: 0,
+          nodeIds: [],
+        },
+      },
+    },
+    computed: {
+      groupedNodes() {
+        const map = {};
+        for (const node of this.nodes) {
+          const groupName = node.upstreamName || '未分组';
+          if (!map[groupName]) {
+            map[groupName] = [];
+          }
+          map[groupName].push(node);
+        }
+        return Object.keys(map).map(name => ({
+          name,
+          nodes: map[name],
+        }));
+      },
+    },
+    methods: {
+      async loadAll() {
+        this.loading = true;
+        try {
+          const nodeMsg = await HttpUtil.get('/panel/api/subscription-market/nodes/list', {
+            enabledOnly: 1
+          });
+          if (nodeMsg.success && Array.isArray(nodeMsg.obj)) {
+            this.nodes = nodeMsg.obj;
+          }
+          const customerMsg = await HttpUtil.get('/panel/api/subscription-market/customers/list');
+          if (customerMsg.success && Array.isArray(customerMsg.obj)) {
+            this.customers = customerMsg.obj;
+          }
+        } finally {
+          this.loading = false;
+        }
+      },
+      openCustomerModal(record) {
+        if (record) {
+          this.customerModal.editId = record.id;
+          this.customerModal.expiryMoment = record.expiryTime ? moment(record.expiryTime) : null;
+          this.customerModal.form = {
+            name: record.name,
+            enable: !!record.enable,
+            expiryTime: record.expiryTime || 0,
+            nodeIds: Array.isArray(record.nodeIds) ? record.nodeIds.slice() : [],
+          };
+        } else {
+          this.customerModal.editId = null;
+          this.customerModal.expiryMoment = null;
+          this.customerModal.form = {
+            name: '',
+            enable: true,
+            expiryTime: 0,
+            nodeIds: this.nodes.map(node => node.id),
+          };
+        }
+        this.customerModal.visible = true;
+      },
+      selectAllNodes() {
+        this.customerModal.form.nodeIds = this.nodes.map(node => node.id);
+      },
+      async submitCustomer() {
+        if (!this.customerModal.form.name) {
+          this.$message.error('客户名称不能为空');
+          return;
+        }
+        const payload = Object.assign({}, this.customerModal.form, {
+          expiryTime: this.customerModal.expiryMoment ? this.customerModal.expiryMoment.valueOf() : 0,
+        });
+        this.customerModal.saving = true;
+        try {
+          const url = this.customerModal.editId ?
+            `/panel/api/subscription-market/customers/update/${this.customerModal.editId}` :
+            '/panel/api/subscription-market/customers/add';
+          const msg = await HttpUtil.post(url, payload);
+          if (msg.success) {
+            this.customerModal.visible = false;
+            await this.loadAll();
+          }
+        } finally {
+          this.customerModal.saving = false;
+        }
+      },
+      confirmDeleteCustomer(record) {
+        this.$confirm({
+          title: '删除客户订阅',
+          content: `确定删除「${record.name}」吗？`,
+          okText: '删除',
+          cancelText: '取消',
+          class: themeSwitcher.currentTheme,
+          onOk: async () => {
+            const msg = await HttpUtil.post(`/panel/api/subscription-market/customers/delete/${record.id}`);
+            if (msg.success) {
+              await this.loadAll();
+            }
+          },
+        });
+      },
+      async copySubscription(link) {
+        const ok = await ClipboardManager.copyText(link || '');
+        this.$message[ok ? 'success' : 'error'](ok ? '已复制' : '复制失败');
+      },
+      formatDateMs(value) {
+        if (!value) return '不限';
+        return IntlUtil.formatDate(Number(value));
+      },
+      formatUnix(value) {
+        if (!value) return '-';
+        return IntlUtil.formatDate(Number(value) * 1000);
+      },
+    },
+    mounted() {
+      this.loadAll();
+    },
+  });
+</script>
+<style>
+  .subscription-link {
+    display: inline-block;
+    max-width: 520px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  .node-checkbox-group {
+    width: 100%;
+    max-height: 360px;
+    overflow: auto;
+    padding-right: 6px;
+  }
+
+  .node-group {
+    border-top: 1px solid rgba(127, 127, 127, .18);
+    padding: 12px 0;
+  }
+
+  .node-group:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .node-group-title {
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .node-name {
+    display: inline-block;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
+  @media (max-width: 768px) {
+    .subscription-link {
+      max-width: 260px;
+    }
+
+    .node-name {
+      max-width: 190px;
+    }
+  }
+</style>
+{{ template "page/body_end" .}}

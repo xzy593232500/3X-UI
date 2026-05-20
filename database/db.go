@@ -39,6 +39,10 @@ func initModels() error {
 		&xray.ClientTraffic{},
 		&model.HistoryOfSeeders{},
 		&model.CustomGeoResource{},
+		&model.UpstreamSubscription{},
+		&model.UpstreamNode{},
+		&model.CustomerSubscription{},
+		&model.CustomerSubscriptionNode{},
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {

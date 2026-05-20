@@ -48,6 +48,7 @@ func (a *APIController) initRouter(g *gin.RouterGroup, customGeo *service.Custom
 	server := api.Group("/server")
 	a.serverController = NewServerController(server)
 
+	NewSubscriptionMarketAPIController(api.Group("/subscription-market"))
 	NewCustomGeoController(api.Group("/custom-geo"), customGeo)
 
 	// Extra routes

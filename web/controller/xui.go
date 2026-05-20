@@ -26,6 +26,8 @@ func (a *XUIController) initRouter(g *gin.RouterGroup) {
 
 	g.GET("/", a.index)
 	g.GET("/inbounds", a.inbounds)
+	g.GET("/upstream-subscriptions", a.upstreamSubscriptions)
+	g.GET("/customer-subscriptions", a.customerSubscriptions)
 	g.GET("/settings", a.settings)
 	g.GET("/xray", a.xraySettings)
 
@@ -41,6 +43,14 @@ func (a *XUIController) index(c *gin.Context) {
 // inbounds renders the inbounds management page.
 func (a *XUIController) inbounds(c *gin.Context) {
 	html(c, "inbounds.html", "pages.inbounds.title", nil)
+}
+
+func (a *XUIController) upstreamSubscriptions(c *gin.Context) {
+	html(c, "upstream_subscriptions.html", "upstreamSubscriptions", nil)
+}
+
+func (a *XUIController) customerSubscriptions(c *gin.Context) {
+	html(c, "customer_subscriptions.html", "customerSubscriptions", nil)
 }
 
 // settings renders the settings management page.
