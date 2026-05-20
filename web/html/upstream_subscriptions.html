@@ -108,9 +108,10 @@
       <template slot="sourceType" slot-scope="text, record">
         <a-tag :color="record.sourceType === 'clash' ? 'purple' : 'green'">[[ record.sourceType ]]</a-tag>
       </template>
-      <template slot="link" slot-scope="text, record">
-        <a-tooltip :title="record.link">
-          <span class="node-link">[[ record.link || 'Clash YAML 节点' ]]</span>
+      <template slot="copyLink" slot-scope="text, record">
+        <a-tooltip :title="record.link || record.clash || '暂无可复制内容'">
+          <a-button size="small" icon="copy" :disabled="!record.link && !record.clash"
+            @click="copyNodeLink(record)"></a-button>
         </a-tooltip>
       </template>
     </a-table>
@@ -204,10 +205,11 @@
       width: 90
     },
     {
-      title: '节点链接',
+      title: '复制',
       scopedSlots: {
-        customRender: 'link'
+        customRender: 'copyLink'
       },
+      width: 80
     },
   ];
 
@@ -330,6 +332,11 @@
           record.enable = previous;
         }
       },
+      async copyNodeLink(record) {
+        const text = record.link || record.clash || '';
+        const ok = await ClipboardManager.copyText(text);
+        this.$message[ok ? 'success' : 'error'](ok ? '已复制' : '复制失败');
+      },
       confirmDeleteUpstream(record) {
         this.$confirm({
           title: '删除上游订阅',
@@ -393,25 +400,10 @@
   });
 </script>
 <style>
-  .node-link {
-    display: inline-block;
-    max-width: 520px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    vertical-align: bottom;
-  }
-
   .error-tag {
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  @media (max-width: 768px) {
-    .node-link {
-      max-width: 260px;
-    }
   }
 </style>
 {{ template "page/body_end" .}}

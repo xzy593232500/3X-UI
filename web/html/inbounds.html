@@ -700,28 +700,32 @@
         <a-tag color="green">仅显示已启用的上游节点</a-tag>
       </a-space>
       <div class="node-checkbox-group">
-        <div v-for="group in groupedUpstreamNodes" :key="group.upstreamId" class="node-group">
-          <div class="node-group-title">
-            <a-checkbox :checked="isGroupAllSelected(inboundUpstreamModal.nodeIds, group)"
-              :indeterminate="isGroupPartSelected(inboundUpstreamModal.nodeIds, group)"
-              @change="event => setGroupSelected(inboundUpstreamModal, 'nodeIds', group, event.target.checked)">
-              [[ group.name ]]
-            </a-checkbox>
-            <a-space>
-              <a-button size="small" @click="setGroupSelected(inboundUpstreamModal, 'nodeIds', group, true)">全选</a-button>
-              <a-button size="small" @click="setGroupSelected(inboundUpstreamModal, 'nodeIds', group, false)">清空</a-button>
-            </a-space>
-          </div>
-          <a-row :gutter="[8,8]">
-            <a-col v-for="node in group.nodes" :key="node.id" :span="isMobile ? 24 : 12">
-              <a-checkbox :checked="isNodeSelected(inboundUpstreamModal.nodeIds, node.id)"
-                @change="event => setNodeSelected(inboundUpstreamModal, 'nodeIds', node.id, event.target.checked)">
-                <span class="node-name">[[ node.name ]]</span>
-                <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+        <a-collapse :active-key="inboundUpstreamModal.activeGroupKeys"
+          @change="keys => inboundUpstreamModal.activeGroupKeys = normalizeCollapseKeys(keys)" :bordered="false"
+          class="node-collapse">
+          <a-collapse-panel v-for="group in groupedUpstreamNodes" :key="group.key" :header="groupHeader(group)">
+            <div class="node-group-tools">
+              <a-checkbox :checked="isGroupAllSelected(inboundUpstreamModal.nodeIds, group)"
+                :indeterminate="isGroupPartSelected(inboundUpstreamModal.nodeIds, group)"
+                @change="event => setGroupSelected(inboundUpstreamModal, 'nodeIds', group, event.target.checked)">
+                整个订阅
               </a-checkbox>
-            </a-col>
-          </a-row>
-        </div>
+              <a-space>
+                <a-button size="small" @click="setGroupSelected(inboundUpstreamModal, 'nodeIds', group, true)">全选</a-button>
+                <a-button size="small" @click="setGroupSelected(inboundUpstreamModal, 'nodeIds', group, false)">清空</a-button>
+              </a-space>
+            </div>
+            <a-row :gutter="[8,8]">
+              <a-col v-for="node in group.nodes" :key="node.id" :span="isMobile ? 24 : 12">
+                <a-checkbox :checked="isNodeSelected(inboundUpstreamModal.nodeIds, node.id)"
+                  @change="event => setNodeSelected(inboundUpstreamModal, 'nodeIds', node.id, event.target.checked)">
+                  <span class="node-name">[[ node.name ]]</span>
+                  <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+                </a-checkbox>
+              </a-col>
+            </a-row>
+          </a-collapse-panel>
+        </a-collapse>
         <a-empty v-if="groupedUpstreamNodes.length === 0" description="暂无可用上游节点"></a-empty>
       </div>
     </a-spin>
@@ -1194,6 +1198,7 @@
         inboundId: null,
         inboundRemark: '',
         nodeIds: [],
+        activeGroupKeys: [],
       },
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
       refreshing: false,
@@ -1315,6 +1320,7 @@
         this.inboundUpstreamModal.inboundId = dbInbound.id;
         this.inboundUpstreamModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
         this.inboundUpstreamModal.nodeIds = [];
+        this.inboundUpstreamModal.activeGroupKeys = [];
         this.inboundUpstreamModal.loading = true;
         this.inboundUpstreamModal.visible = true;
         try {
@@ -1375,6 +1381,17 @@
       isGroupPartSelected(selectedIds, group) {
         const selectedCount = group.nodes.filter(node => this.isNodeSelected(selectedIds, node.id)).length;
         return selectedCount > 0 && selectedCount < group.nodes.length;
+      },
+      groupSelectedCount(selectedIds, group) {
+        return group.nodes.filter(node => this.isNodeSelected(selectedIds, node.id)).length;
+      },
+      groupHeader(group) {
+        return `${group.name}（已选 ${this.groupSelectedCount(this.inboundUpstreamModal.nodeIds, group)} / ${group.nodes.length}）`;
+      },
+      normalizeCollapseKeys(keys) {
+        if (Array.isArray(keys)) return keys;
+        if (keys === undefined || keys === null || keys === '') return [];
+        return [String(keys)];
       },
       setInbounds(dbInbounds) {
         this.inbounds.splice(0);
@@ -2497,6 +2514,7 @@
           const upstreamId = node.upstreamId || 0;
           if (!map[upstreamId]) {
             map[upstreamId] = {
+              key: String(upstreamId),
               upstreamId,
               name: node.upstreamName || '未分组',
               nodes: [],
@@ -2569,26 +2587,28 @@
     padding-right: 6px;
   }
 
-  .node-group {
-    border-top: 1px solid rgba(127, 127, 127, .18);
-    padding: 12px 0;
+  .node-collapse {
+    background: transparent;
   }
 
-  .node-group:first-child {
-    border-top: 0;
-    padding-top: 0;
+  .node-collapse .ant-collapse-item {
+    border-bottom-color: rgba(127, 127, 127, .18);
   }
 
-  .node-group-title {
+  .node-collapse .ant-collapse-header {
+    font-weight: 600;
+  }
+
+  .node-group-tools {
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 10px;
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 10px;
   }
 
-  .node-group-title .ant-space {
+  .node-group-tools .ant-space {
     width: auto;
   }
 
@@ -2610,7 +2630,7 @@
       justify-content: flex-start;
     }
 
-    .node-group-title {
+    .node-group-tools {
       align-items: flex-start;
       flex-direction: column;
     }
