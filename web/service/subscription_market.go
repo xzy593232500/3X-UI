@@ -1408,7 +1408,11 @@ func decodeBase64Any(content string) (string, bool) {
 }
 
 func upstreamNodeHash(upstreamID int, node parsedUpstreamNode) string {
-	payload := fmt.Sprintf("%d\n%s\n%s\n%s", upstreamID, node.SourceType, node.Link, node.Clash)
+	link := node.Link
+	if node.SourceType == "clash" {
+		link = ""
+	}
+	payload := fmt.Sprintf("%d\n%s\n%s\n%s", upstreamID, node.SourceType, link, node.Clash)
 	sum := sha256.Sum256([]byte(payload))
 	return fmt.Sprintf("%x", sum[:])
 }
