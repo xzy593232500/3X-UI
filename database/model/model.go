@@ -150,7 +150,7 @@ type UpstreamSubscription struct {
 	LastError     string         `json:"lastError" form:"lastError" gorm:"column:last_error"`
 	CreatedAt     int64          `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt     int64          `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`
-	Nodes         []UpstreamNode `gorm:"foreignKey:UpstreamId;references:Id"`
+	Nodes         []UpstreamNode `json:"nodes" gorm:"foreignKey:UpstreamId;references:Id"`
 }
 
 // UpstreamNode is one parsed node from an upstream subscription.
@@ -186,6 +186,15 @@ type CustomerSubscriptionNode struct {
 	CustomerId int   `json:"customerId" form:"customerId" gorm:"uniqueIndex:idx_customer_node;column:customer_id"`
 	NodeId     int   `json:"nodeId" form:"nodeId" gorm:"uniqueIndex:idx_customer_node;column:node_id"`
 	CreatedAt  int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+}
+
+// InboundSubscriptionNode grants every client subscription under one inbound
+// access to one upstream node.
+type InboundSubscriptionNode struct {
+	Id        int   `json:"id" gorm:"primaryKey;autoIncrement"`
+	InboundId int   `json:"inboundId" form:"inboundId" gorm:"uniqueIndex:idx_inbound_node;column:inbound_id"`
+	NodeId    int   `json:"nodeId" form:"nodeId" gorm:"uniqueIndex:idx_inbound_node;column:node_id"`
+	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
 }
 
 // Client represents a client configuration for Xray inbounds with traffic limits and settings.

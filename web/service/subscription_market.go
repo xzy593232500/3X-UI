@@ -35,6 +35,7 @@ var (
 	ErrCustomerExpired           = errors.New("customer subscription is expired")
 	ErrCustomerNoEnabledNodes    = errors.New("customer has no enabled nodes")
 	ErrCustomerNoURIEnabledNodes = errors.New("customer has no URI nodes enabled")
+	ErrInboundNotFound           = errors.New("inbound not found")
 )
 
 type SubscriptionMarketService struct{}
@@ -70,6 +71,19 @@ type CustomerSubscriptionContent struct {
 	Links      []string
 	ClashProxy []map[string]any
 	Customer   model.CustomerSubscription
+}
+
+type InboundSubscriptionContent struct {
+	Links      []string
+	ClashProxy []map[string]any
+}
+
+type upstreamNodeContentRow struct {
+	ID             int
+	UpstreamSortID int
+	Sort           int
+	Link           string
+	Clash          string
 }
 
 type parsedUpstreamNode struct {
@@ -148,6 +162,9 @@ func (s *SubscriptionMarketService) DeleteUpstream(id int) error {
 		}
 		if len(nodeIDs) > 0 {
 			if err := tx.Where("node_id IN ?", nodeIDs).Delete(&model.CustomerSubscriptionNode{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("node_id IN ?", nodeIDs).Delete(&model.InboundSubscriptionNode{}).Error; err != nil {
 				return err
 			}
 		}
@@ -275,6 +292,9 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 			if err := tx.Where("node_id IN ?", staleIDs).Delete(&model.CustomerSubscriptionNode{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("node_id IN ?", staleIDs).Delete(&model.InboundSubscriptionNode{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("id IN ?", staleIDs).Delete(&model.UpstreamNode{}).Error; err != nil {
 				return err
 			}
@@ -377,6 +397,17 @@ func (s *SubscriptionMarketService) UpdateCustomer(id int, name string, enable b
 	return &view, nil
 }
 
+func (s *SubscriptionMarketService) SetCustomerEnable(id int, enable bool) error {
+	result := database.GetDB().Model(&model.CustomerSubscription{}).Where("id = ?", id).Update("enable", enable)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrCustomerNotFound
+	}
+	return nil
+}
+
 func (s *SubscriptionMarketService) DeleteCustomer(id int) error {
 	db := database.GetDB()
 	return db.Transaction(func(tx *gorm.DB) error {
@@ -394,6 +425,65 @@ func (s *SubscriptionMarketService) DeleteCustomer(id int) error {
 	})
 }
 
+func (s *SubscriptionMarketService) GetInboundNodeIDs(inboundID int) ([]int, error) {
+	var count int64
+	if err := database.GetDB().Model(&model.Inbound{}).Where("id = ?", inboundID).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, ErrInboundNotFound
+	}
+	var ids []int
+	err := database.GetDB().
+		Model(model.InboundSubscriptionNode{}).
+		Where("inbound_id = ?", inboundID).
+		Order("node_id asc").
+		Pluck("node_id", &ids).Error
+	return ids, err
+}
+
+func (s *SubscriptionMarketService) SetInboundNodes(inboundID int, nodeIDs []int) error {
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrInboundNotFound
+		}
+		return s.replaceInboundNodes(tx, inboundID, nodeIDs)
+	})
+}
+
+func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) (*InboundSubscriptionContent, error) {
+	inboundIDs, err := s.inboundIDsBySubID(subID)
+	if err != nil {
+		return nil, err
+	}
+	if len(inboundIDs) == 0 {
+		return &InboundSubscriptionContent{}, nil
+	}
+
+	var rows []upstreamNodeContentRow
+	err = database.GetDB().Table("inbound_subscription_nodes").
+		Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
+		Joins("JOIN upstream_nodes ON upstream_nodes.id = inbound_subscription_nodes.node_id").
+		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
+		Where("inbound_subscription_nodes.inbound_id IN ?", inboundIDs).
+		Where("upstream_nodes.enable = ? AND upstream_subscriptions.enable = ?", true, true).
+		Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	links, clashProxies := buildUpstreamNodeContent(rows)
+	return &InboundSubscriptionContent{
+		Links:      links,
+		ClashProxy: clashProxies,
+	}, nil
+}
+
 func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*CustomerSubscriptionContent, error) {
 	token = strings.TrimSpace(token)
 	var customer model.CustomerSubscription
@@ -408,10 +498,7 @@ func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*Cust
 		return nil, ErrCustomerExpired
 	}
 
-	var rows []struct {
-		Link  string
-		Clash string
-	}
+	var rows []upstreamNodeContentRow
 	err := db.Table("customer_subscription_nodes").
 		Select("upstream_nodes.link, upstream_nodes.clash").
 		Joins("JOIN upstream_nodes ON upstream_nodes.id = customer_subscription_nodes.node_id").
@@ -424,19 +511,7 @@ func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*Cust
 		return nil, err
 	}
 
-	links := make([]string, 0, len(rows))
-	clashProxies := make([]map[string]any, 0)
-	for _, row := range rows {
-		if strings.TrimSpace(row.Link) != "" {
-			links = append(links, row.Link)
-		}
-		if strings.TrimSpace(row.Clash) != "" {
-			var proxy map[string]any
-			if err := json.Unmarshal([]byte(row.Clash), &proxy); err == nil && len(proxy) > 0 {
-				clashProxies = append(clashProxies, proxy)
-			}
-		}
-	}
+	links, clashProxies := buildUpstreamNodeContent(rows)
 	if len(links) == 0 && len(clashProxies) == 0 {
 		return nil, ErrCustomerNoEnabledNodes
 	}
@@ -532,6 +607,32 @@ func (s *SubscriptionMarketService) replaceCustomerNodes(tx *gorm.DB, customerID
 	return nil
 }
 
+func (s *SubscriptionMarketService) replaceInboundNodes(tx *gorm.DB, inboundID int, nodeIDs []int) error {
+	if err := tx.Where("inbound_id = ?", inboundID).Delete(&model.InboundSubscriptionNode{}).Error; err != nil {
+		return err
+	}
+	nodeIDs = uniquePositiveInts(nodeIDs)
+	if len(nodeIDs) == 0 {
+		return nil
+	}
+	var allowedIDs []int
+	if err := tx.Table("upstream_nodes").
+		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
+		Where("upstream_nodes.id IN ?", nodeIDs).
+		Where("upstream_nodes.enable = ? AND upstream_subscriptions.enable = ?", true, true).
+		Pluck("upstream_nodes.id", &allowedIDs).Error; err != nil {
+		return err
+	}
+	sort.Ints(allowedIDs)
+	for _, nodeID := range allowedIDs {
+		grant := model.InboundSubscriptionNode{InboundId: inboundID, NodeId: nodeID}
+		if err := tx.Create(&grant).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *SubscriptionMarketService) customerNodeIDs(customerID int) ([]int, error) {
 	var ids []int
 	err := database.GetDB().
@@ -540,6 +641,51 @@ func (s *SubscriptionMarketService) customerNodeIDs(customerID int) ([]int, erro
 		Order("node_id asc").
 		Pluck("node_id", &ids).Error
 	return ids, err
+}
+
+func (s *SubscriptionMarketService) inboundIDsBySubID(subID string) ([]int, error) {
+	subID = strings.TrimSpace(subID)
+	if subID == "" {
+		return nil, nil
+	}
+	var rows []struct {
+		ID int `gorm:"column:id"`
+	}
+	err := database.GetDB().Raw(`
+		SELECT DISTINCT inbounds.id
+		FROM inbounds,
+			JSON_EACH(JSON_EXTRACT(inbounds.settings, '$.clients')) AS client
+		WHERE
+			protocol in ('vmess','vless','trojan','shadowsocks','hysteria','hysteria2')
+			AND JSON_EXTRACT(client.value, '$.subId') = ?
+			AND enable = ?`, subID, true).Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int, 0, len(rows))
+	for _, row := range rows {
+		if row.ID > 0 {
+			ids = append(ids, row.ID)
+		}
+	}
+	return ids, nil
+}
+
+func buildUpstreamNodeContent(rows []upstreamNodeContentRow) ([]string, []map[string]any) {
+	links := make([]string, 0, len(rows))
+	clashProxies := make([]map[string]any, 0)
+	for _, row := range rows {
+		if strings.TrimSpace(row.Link) != "" {
+			links = append(links, row.Link)
+		}
+		if strings.TrimSpace(row.Clash) != "" {
+			var proxy map[string]any
+			if err := json.Unmarshal([]byte(row.Clash), &proxy); err == nil && len(proxy) > 0 {
+				clashProxies = append(clashProxies, proxy)
+			}
+		}
+	}
+	return links, clashProxies
 }
 
 func (s *SubscriptionMarketService) newCustomerToken() string {

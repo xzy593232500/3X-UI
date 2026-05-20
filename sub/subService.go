@@ -93,6 +93,16 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 		}
 	}
 
+	if upstreamContent, err := (&service.SubscriptionMarketService{}).GetInboundSubscriptionContent(subId); err == nil && upstreamContent != nil {
+		for _, link := range upstreamContent.Links {
+			if strings.TrimSpace(link) != "" {
+				result = append(result, link)
+			}
+		}
+	} else if err != nil {
+		logger.Warning("SubService - GetInboundSubscriptionContent: ", err)
+	}
+
 	// Prepare statistics
 	for index, clientTraffic := range clientTraffics {
 		if index == 0 {

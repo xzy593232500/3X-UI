@@ -62,8 +62,10 @@ func (s *SubClashService) GetClash(subId string, host string) (string, string, e
 		}
 	}
 
-	if len(proxies) == 0 {
-		return "", "", nil
+	if upstreamContent, err := (&service.SubscriptionMarketService{}).GetInboundSubscriptionContent(subId); err == nil && upstreamContent != nil {
+		proxies = append(proxies, upstreamContent.ClashProxy...)
+	} else if err != nil {
+		logger.Warning("SubClashService - GetInboundSubscriptionContent: ", err)
 	}
 
 	for index, clientTraffic := range clientTraffics {
@@ -88,12 +90,11 @@ func (s *SubClashService) GetClash(subId string, host string) (string, string, e
 		}
 	}
 
-	proxyNames := make([]string, 0, len(proxies)+1)
-	for _, proxy := range proxies {
-		if name, ok := proxy["name"].(string); ok && name != "" {
-			proxyNames = append(proxyNames, name)
-		}
+	if len(proxies) == 0 {
+		return "", "", nil
 	}
+
+	proxyNames := normalizeClashProxyNames(proxies)
 	proxyNames = append(proxyNames, "DIRECT")
 
 	config := ClashConfig{
@@ -113,6 +114,27 @@ func (s *SubClashService) GetClash(subId string, host string) (string, string, e
 
 	header := fmt.Sprintf("upload=%d; download=%d; total=%d; expire=%d", traffic.Up, traffic.Down, traffic.Total, traffic.ExpiryTime/1000)
 	return string(finalYAML), header, nil
+}
+
+func normalizeClashProxyNames(proxies []map[string]any) []string {
+	names := make([]string, 0, len(proxies))
+	seen := make(map[string]int, len(proxies))
+	for index, proxy := range proxies {
+		name, _ := proxy["name"].(string)
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name = fmt.Sprintf("Node %d", index+1)
+		}
+		if count := seen[name]; count > 0 {
+			seen[name] = count + 1
+			name = fmt.Sprintf("%s %d", name, count+1)
+		} else {
+			seen[name] = 1
+		}
+		proxy["name"] = name
+		names = append(names, name)
+	}
+	return names
 }
 
 func (s *SubClashService) getProxies(inbound *model.Inbound, client model.Client, host string) []map[string]any {

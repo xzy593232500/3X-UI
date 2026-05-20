@@ -50,7 +50,12 @@ func (a *SubscriptionMarketAPIController) initRouter(g *gin.RouterGroup) {
 	customers.GET("/list", a.listCustomers)
 	customers.POST("/add", a.addCustomer)
 	customers.POST("/update/:id", a.updateCustomer)
+	customers.POST("/toggle/:id", a.toggleCustomer)
 	customers.POST("/delete/:id", a.deleteCustomer)
+
+	inbounds := g.Group("/inbounds")
+	inbounds.GET("/:id/nodes", a.getInboundNodes)
+	inbounds.POST("/:id/nodes", a.updateInboundNodes)
 }
 
 func (a *CustomerSubscriptionPublicController) initRouter(g *gin.RouterGroup) {
@@ -72,6 +77,10 @@ type customerSubscriptionForm struct {
 	Enable     bool   `json:"enable" form:"enable"`
 	ExpiryTime int64  `json:"expiryTime" form:"expiryTime"`
 	NodeIds    []int  `json:"nodeIds" form:"nodeIds"`
+}
+
+type nodeSelectionForm struct {
+	NodeIds []int `json:"nodeIds" form:"nodeIds"`
 }
 
 func (a *SubscriptionMarketAPIController) listUpstreams(c *gin.Context) {
@@ -213,6 +222,20 @@ func (a *SubscriptionMarketAPIController) updateCustomer(c *gin.Context) {
 	jsonMsgObj(c, "update customer subscription", customer, err)
 }
 
+func (a *SubscriptionMarketAPIController) toggleCustomer(c *gin.Context) {
+	id, ok := parsePositiveID(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var form toggleForm
+	if err := c.ShouldBind(&form); err != nil {
+		jsonMsg(c, "toggle customer subscription", err)
+		return
+	}
+	err := a.subscriptionMarket.SetCustomerEnable(id, form.Enable)
+	jsonMsg(c, "toggle customer subscription", err)
+}
+
 func (a *SubscriptionMarketAPIController) deleteCustomer(c *gin.Context) {
 	id, ok := parsePositiveID(c, c.Param("id"))
 	if !ok {
@@ -220,6 +243,29 @@ func (a *SubscriptionMarketAPIController) deleteCustomer(c *gin.Context) {
 	}
 	err := a.subscriptionMarket.DeleteCustomer(id)
 	jsonMsg(c, "delete customer subscription", err)
+}
+
+func (a *SubscriptionMarketAPIController) getInboundNodes(c *gin.Context) {
+	id, ok := parsePositiveID(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	nodeIDs, err := a.subscriptionMarket.GetInboundNodeIDs(id)
+	jsonObj(c, nodeIDs, err)
+}
+
+func (a *SubscriptionMarketAPIController) updateInboundNodes(c *gin.Context) {
+	id, ok := parsePositiveID(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var form nodeSelectionForm
+	if err := c.ShouldBind(&form); err != nil {
+		jsonMsg(c, "update inbound upstream nodes", err)
+		return
+	}
+	err := a.subscriptionMarket.SetInboundNodes(id, form.NodeIds)
+	jsonMsg(c, "update inbound upstream nodes", err)
 }
 
 func (a *CustomerSubscriptionPublicController) customerSubscription(c *gin.Context) {

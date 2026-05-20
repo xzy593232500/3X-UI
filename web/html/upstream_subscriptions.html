@@ -7,72 +7,76 @@
   <a-layout id="content-layout">
     <a-layout-content>
       <a-spin :spinning="loading" :delay="300" tip="加载中" size="large">
-        <a-row :gutter="[isMobile ? 8 : 16, isMobile ? 8 : 16]">
-          <a-col :span="24">
-            <a-card size="small" title="上游订阅">
-              <template #extra>
-                <a-space>
-                  <a-button icon="reload" @click="loadAll"></a-button>
-                  <a-button type="primary" icon="plus" @click="openUpstreamModal()">添加上游</a-button>
-                </a-space>
-              </template>
-              <a-table row-key="id" :columns="upstreamColumns" :data-source="upstreams" :pagination="{ pageSize: 8 }"
-                size="middle" :scroll="{ x: 980 }">
-                <template slot="enable" slot-scope="text, record">
-                  <a-switch :checked="record.enable" @change="checked => toggleUpstream(record, checked)"></a-switch>
+        <a-card size="small" title="上游订阅">
+          <template #extra>
+            <a-space>
+              <a-button icon="reload" @click="loadAll"></a-button>
+              <a-button type="primary" icon="plus" @click="openUpstreamModal()">添加上游</a-button>
+            </a-space>
+          </template>
+          <a-table row-key="id" :columns="upstreamColumns" :data-source="upstreams" :pagination="{ pageSize: 10 }"
+            size="middle" :scroll="{ x: 1120 }">
+            <template slot="enable" slot-scope="text, record">
+              <a-switch :checked="record.enable" @change="checked => toggleUpstream(record, checked)"></a-switch>
+            </template>
+            <template slot="nodes" slot-scope="text, record">
+              <a-button size="small" icon="cluster" @click="openNodeModal(record)">
+                [[ record.nodes ? record.nodes.length : 0 ]]
+              </a-button>
+            </template>
+            <template slot="traffic" slot-scope="text, record">
+              <a-popover :overlay-class-name="themeSwitcher.currentTheme">
+                <template slot="content">
+                  <table cellpadding="2" width="100%">
+                    <tr>
+                      <td>上传</td>
+                      <td>[[ formatTraffic(record.upload) ]]</td>
+                    </tr>
+                    <tr>
+                      <td>下载</td>
+                      <td>[[ formatTraffic(record.download) ]]</td>
+                    </tr>
+                    <tr>
+                      <td>总量</td>
+                      <td>[[ record.total > 0 ? formatTraffic(record.total) : '未知' ]]</td>
+                    </tr>
+                  </table>
                 </template>
-                <template slot="traffic" slot-scope="text, record">
-                  <a-space direction="vertical" size="small">
-                    <span>已用 [[ formatTraffic(record.upload + record.download) ]]</span>
-                    <span>总量 [[ record.total > 0 ? formatTraffic(record.total) : '未知' ]]</span>
-                  </a-space>
+                <a-tag :color="remainingTrafficColor(record)">
+                  剩余 [[ formatRemainingTraffic(record) ]]
+                </a-tag>
+              </a-popover>
+            </template>
+            <template slot="expiry" slot-scope="text, record">
+              <a-popover v-if="record.expiryTime > 0" :overlay-class-name="themeSwitcher.currentTheme">
+                <template slot="content">
+                  [[ formatDateMs(record.expiryTime) ]]
                 </template>
-                <template slot="expiry" slot-scope="text, record">
-                  <span>[[ formatDateMs(record.expiryTime) ]]</span>
-                </template>
-                <template slot="lastFetchedAt" slot-scope="text, record">
-                  <a-space direction="vertical" size="small">
-                    <span>[[ formatUnix(record.lastFetchedAt) ]]</span>
-                    <a-tag v-if="record.lastError" color="red">[[ record.lastError ]]</a-tag>
-                  </a-space>
-                </template>
-                <template slot="nodes" slot-scope="text, record">
-                  <a-tag color="green">[[ record.nodes ? record.nodes.length : 0 ]]</a-tag>
-                </template>
-                <template slot="action" slot-scope="text, record">
-                  <a-space>
-                    <a-button size="small" icon="sync" :loading="syncingId === record.id"
-                      @click="syncUpstream(record)"></a-button>
-                    <a-button size="small" icon="edit" @click="openUpstreamModal(record)"></a-button>
-                    <a-button size="small" icon="delete" type="danger" @click="confirmDeleteUpstream(record)"></a-button>
-                  </a-space>
-                </template>
-              </a-table>
-            </a-card>
-          </a-col>
-
-          <a-col :span="24">
-            <a-card size="small" title="上游节点">
-              <template #extra>
-                <a-tag color="blue">关闭的节点不会出现在客户添加页，也不会输出到客户订阅</a-tag>
-              </template>
-              <a-table row-key="id" :columns="nodeColumns" :data-source="nodes" :pagination="{ pageSize: 12 }"
-                size="middle" :scroll="{ x: 980 }">
-                <template slot="enable" slot-scope="text, record">
-                  <a-switch :checked="record.enable" @change="checked => toggleNode(record, checked)"></a-switch>
-                </template>
-                <template slot="sourceType" slot-scope="text, record">
-                  <a-tag :color="record.sourceType === 'clash' ? 'purple' : 'green'">[[ record.sourceType ]]</a-tag>
-                </template>
-                <template slot="link" slot-scope="text, record">
-                  <a-tooltip :title="record.link">
-                    <span class="node-link">[[ record.link || 'Clash YAML 节点' ]]</span>
-                  </a-tooltip>
-                </template>
-              </a-table>
-            </a-card>
-          </a-col>
-        </a-row>
+                <a-tag :color="remainingDaysColor(record.expiryTime)">
+                  [[ formatRemainingDays(record.expiryTime) ]]
+                </a-tag>
+              </a-popover>
+              <a-tag v-else color="purple">未知</a-tag>
+            </template>
+            <template slot="lastFetchedAt" slot-scope="text, record">
+              <a-space direction="vertical" size="small">
+                <span>[[ formatUnix(record.lastFetchedAt) ]]</span>
+                <a-tooltip v-if="record.lastError" :title="record.lastError">
+                  <a-tag color="red" class="error-tag">同步失败</a-tag>
+                </a-tooltip>
+              </a-space>
+            </template>
+            <template slot="action" slot-scope="text, record">
+              <a-space>
+                <a-button size="small" icon="cluster" @click="openNodeModal(record)">节点</a-button>
+                <a-button size="small" icon="sync" :loading="syncingId === record.id"
+                  @click="syncUpstream(record)"></a-button>
+                <a-button size="small" icon="edit" @click="openUpstreamModal(record)"></a-button>
+                <a-button size="small" icon="delete" type="danger" @click="confirmDeleteUpstream(record)"></a-button>
+              </a-space>
+            </template>
+          </a-table>
+        </a-card>
       </a-spin>
     </a-layout-content>
   </a-layout>
@@ -90,6 +94,26 @@
         <a-switch v-model="upstreamModal.form.enable"></a-switch>
       </a-form-item>
     </a-form>
+  </a-modal>
+
+  <a-modal v-model="nodeModal.visible" :title="'上游节点 - ' + nodeModal.upstreamName" :footer="null"
+    :class="themeSwitcher.currentTheme" width="980px">
+    <a-alert type="info" show-icon message="关闭的节点不会出现在客户添加页，也不会输出到客户订阅或入站订阅。"
+      class="mb-10"></a-alert>
+    <a-table row-key="id" :columns="nodeColumns" :data-source="nodeModal.nodes" :pagination="{ pageSize: 12 }"
+      size="middle" :scroll="{ x: 900 }">
+      <template slot="enable" slot-scope="text, record">
+        <a-switch :checked="record.enable" @change="checked => toggleNode(record, checked)"></a-switch>
+      </template>
+      <template slot="sourceType" slot-scope="text, record">
+        <a-tag :color="record.sourceType === 'clash' ? 'purple' : 'green'">[[ record.sourceType ]]</a-tag>
+      </template>
+      <template slot="link" slot-scope="text, record">
+        <a-tooltip :title="record.link">
+          <span class="node-link">[[ record.link || 'Clash YAML 节点' ]]</span>
+        </a-tooltip>
+      </template>
+    </a-table>
   </a-modal>
 </a-layout>
 
@@ -116,28 +140,28 @@
       scopedSlots: {
         customRender: 'nodes'
       },
-      width: 90
+      width: 100
     },
     {
-      title: '流量',
+      title: '剩余流量',
       scopedSlots: {
         customRender: 'traffic'
       },
-      width: 180
+      width: 150
     },
     {
-      title: '到期',
+      title: '剩余天数',
       scopedSlots: {
         customRender: 'expiry'
       },
-      width: 160
+      width: 130
     },
     {
       title: '最近同步',
       scopedSlots: {
         customRender: 'lastFetchedAt'
       },
-      width: 220
+      width: 160
     },
     {
       title: '订阅链接',
@@ -149,7 +173,7 @@
       scopedSlots: {
         customRender: 'action'
       },
-      width: 150,
+      width: 230,
       fixed: 'right'
     },
   ];
@@ -157,13 +181,7 @@
   const nodeColumns = [{
       title: '节点名',
       dataIndex: 'name',
-      width: 220,
-      ellipsis: true
-    },
-    {
-      title: '上游',
-      dataIndex: 'upstreamName',
-      width: 160,
+      width: 240,
       ellipsis: true
     },
     {
@@ -203,7 +221,6 @@
       upstreamColumns,
       nodeColumns,
       upstreams: [],
-      nodes: [],
       syncingId: null,
       upstreamModal: {
         visible: false,
@@ -215,6 +232,12 @@
           enable: true,
         },
       },
+      nodeModal: {
+        visible: false,
+        upstreamId: null,
+        upstreamName: '',
+        nodes: [],
+      },
     },
     methods: {
       async loadAll() {
@@ -223,10 +246,10 @@
           const upstreamMsg = await HttpUtil.get('/panel/api/subscription-market/upstreams/list');
           if (upstreamMsg.success && Array.isArray(upstreamMsg.obj)) {
             this.upstreams = upstreamMsg.obj;
-          }
-          const nodeMsg = await HttpUtil.get('/panel/api/subscription-market/nodes/list');
-          if (nodeMsg.success && Array.isArray(nodeMsg.obj)) {
-            this.nodes = nodeMsg.obj;
+            if (this.nodeModal.visible) {
+              const current = this.upstreams.find(item => item.id === this.nodeModal.upstreamId);
+              this.nodeModal.nodes = current && Array.isArray(current.nodes) ? current.nodes : [];
+            }
           }
         } finally {
           this.loading = false;
@@ -249,6 +272,12 @@
           };
         }
         this.upstreamModal.visible = true;
+      },
+      openNodeModal(record) {
+        this.nodeModal.upstreamId = record.id;
+        this.nodeModal.upstreamName = record.name;
+        this.nodeModal.nodes = Array.isArray(record.nodes) ? record.nodes : [];
+        this.nodeModal.visible = true;
       },
       async submitUpstream() {
         const form = this.upstreamModal.form;
@@ -280,20 +309,25 @@
         }
       },
       async toggleUpstream(record, checked) {
+        const previous = record.enable;
+        record.enable = checked;
         const msg = await HttpUtil.post(`/panel/api/subscription-market/upstreams/toggle/${record.id}`, {
           enable: checked
         });
-        if (msg.success) {
-          record.enable = checked;
-          await this.loadAll();
+        if (!msg.success) {
+          record.enable = previous;
+          return;
         }
+        await this.loadAll();
       },
       async toggleNode(record, checked) {
+        const previous = record.enable;
+        record.enable = checked;
         const msg = await HttpUtil.post(`/panel/api/subscription-market/nodes/toggle/${record.id}`, {
           enable: checked
         });
-        if (msg.success) {
-          record.enable = checked;
+        if (!msg.success) {
+          record.enable = previous;
         }
       },
       confirmDeleteUpstream(record) {
@@ -313,6 +347,36 @@
       },
       formatTraffic(value) {
         return SizeFormatter.sizeFormat(Number(value || 0));
+      },
+      formatRemainingTraffic(record) {
+        const total = Number(record.total || 0);
+        if (total <= 0) return '未知';
+        const used = Number(record.upload || 0) + Number(record.download || 0);
+        return this.formatTraffic(Math.max(total - used, 0));
+      },
+      remainingTrafficColor(record) {
+        const total = Number(record.total || 0);
+        if (total <= 0) return 'purple';
+        const used = Number(record.upload || 0) + Number(record.download || 0);
+        const left = Math.max(total - used, 0);
+        if (left <= 0) return 'red';
+        if (left / total <= 0.15) return 'orange';
+        return 'green';
+      },
+      formatRemainingDays(value) {
+        const expiresAt = Number(value || 0);
+        if (expiresAt <= 0) return '未知';
+        const diff = expiresAt - Date.now();
+        if (diff <= 0) return '已到期';
+        return `剩余 ${Math.ceil(diff / 86400000)} 天`;
+      },
+      remainingDaysColor(value) {
+        const expiresAt = Number(value || 0);
+        if (expiresAt <= 0) return 'purple';
+        const diff = expiresAt - Date.now();
+        if (diff <= 0) return 'red';
+        if (diff <= 7 * 86400000) return 'orange';
+        return 'green';
       },
       formatDateMs(value) {
         if (!value) return '未知';
@@ -336,6 +400,12 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     vertical-align: bottom;
+  }
+
+  .error-tag {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   @media (max-width: 768px) {

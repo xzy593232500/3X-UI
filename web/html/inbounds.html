@@ -271,6 +271,10 @@
                             <a-icon type="copy"></a-icon>
                             {{ i18n "pages.inbounds.exportInbound" }}
                           </a-menu-item>
+                          <a-menu-item key="upstreamNodes">
+                            <a-icon type="cluster"></a-icon>
+                            上游节点
+                          </a-menu-item>
                           <a-menu-item key="resetTraffic">
                             <a-icon type="retweet"></a-icon> {{ i18n
                             "pages.inbounds.resetTraffic" }}
@@ -681,6 +685,47 @@
       </a-spin>
     </a-layout-content>
   </a-layout>
+
+  <a-modal v-model="inboundUpstreamModal.visible" :title="'上游节点 - ' + inboundUpstreamModal.inboundRemark"
+    :confirm-loading="inboundUpstreamModal.saving" :class="themeSwitcher.currentTheme" width="820px"
+    @ok="submitInboundUpstreamNodes">
+    <a-spin :spinning="inboundUpstreamModal.loading" tip="加载中">
+      <a-alert type="info" show-icon message="选中的上游节点会追加到该入站下所有客户的订阅链接里。"
+        class="mb-10"></a-alert>
+      <a-space class="mb-10">
+        <a-button size="small" icon="check-square" @click="inboundUpstreamModal.nodeIds = upstreamNodes.map(node => node.id)">
+          全选
+        </a-button>
+        <a-button size="small" icon="minus-square" @click="inboundUpstreamModal.nodeIds = []">清空</a-button>
+        <a-tag color="green">仅显示已启用的上游节点</a-tag>
+      </a-space>
+      <div class="node-checkbox-group">
+        <div v-for="group in groupedUpstreamNodes" :key="group.upstreamId" class="node-group">
+          <div class="node-group-title">
+            <a-checkbox :checked="isGroupAllSelected(inboundUpstreamModal.nodeIds, group)"
+              :indeterminate="isGroupPartSelected(inboundUpstreamModal.nodeIds, group)"
+              @change="event => setGroupSelected(inboundUpstreamModal, 'nodeIds', group, event.target.checked)">
+              [[ group.name ]]
+            </a-checkbox>
+            <a-space>
+              <a-button size="small" @click="setGroupSelected(inboundUpstreamModal, 'nodeIds', group, true)">全选</a-button>
+              <a-button size="small" @click="setGroupSelected(inboundUpstreamModal, 'nodeIds', group, false)">清空</a-button>
+            </a-space>
+          </div>
+          <a-row :gutter="[8,8]">
+            <a-col v-for="node in group.nodes" :key="node.id" :span="isMobile ? 24 : 12">
+              <a-checkbox :checked="isNodeSelected(inboundUpstreamModal.nodeIds, node.id)"
+                @change="event => setNodeSelected(inboundUpstreamModal, 'nodeIds', node.id, event.target.checked)">
+                <span class="node-name">[[ node.name ]]</span>
+                <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+              </a-checkbox>
+            </a-col>
+          </a-row>
+        </div>
+        <a-empty v-if="groupedUpstreamNodes.length === 0" description="暂无可用上游节点"></a-empty>
+      </div>
+    </a-spin>
+  </a-modal>
 </a-layout>
 {{template "page/body_scripts" .}}
 <script src="{{ .base_path }}assets/qrcode/qrious2.min.js?{{ .cur_ver }}"></script>
@@ -1141,6 +1186,15 @@
       clientCount: [],
       onlineClients: [],
       lastOnlineMap: {},
+      upstreamNodes: [],
+      inboundUpstreamModal: {
+        visible: false,
+        loading: false,
+        saving: false,
+        inboundId: null,
+        inboundRemark: '',
+        nodeIds: [],
+      },
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
       refreshing: false,
       refreshInterval: Number(localStorage.getItem("refreshInterval")) || 5000,
@@ -1247,6 +1301,80 @@
         this.remarkModel = settings.remarkModel;
         this.datepicker = settings.datepicker;
         this.ipLimitEnable = settings.ipLimitEnable;
+      },
+      async loadUpstreamNodesForInbounds() {
+        const msg = await HttpUtil.get('/panel/api/subscription-market/nodes/list', {
+          enabledOnly: 1
+        });
+        if (msg.success && Array.isArray(msg.obj)) {
+          this.upstreamNodes = msg.obj;
+        }
+      },
+      async openInboundUpstreamNodes(dbInbound) {
+        if (!dbInbound) return;
+        this.inboundUpstreamModal.inboundId = dbInbound.id;
+        this.inboundUpstreamModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
+        this.inboundUpstreamModal.nodeIds = [];
+        this.inboundUpstreamModal.loading = true;
+        this.inboundUpstreamModal.visible = true;
+        try {
+          await this.loadUpstreamNodesForInbounds();
+          const msg = await HttpUtil.get(`/panel/api/subscription-market/inbounds/${dbInbound.id}/nodes`);
+          if (msg.success && Array.isArray(msg.obj)) {
+            this.inboundUpstreamModal.nodeIds = msg.obj.slice();
+          }
+        } finally {
+          this.inboundUpstreamModal.loading = false;
+        }
+      },
+      async submitInboundUpstreamNodes() {
+        if (!this.inboundUpstreamModal.inboundId) return;
+        this.inboundUpstreamModal.saving = true;
+        try {
+          const msg = await HttpUtil.post(
+            `/panel/api/subscription-market/inbounds/${this.inboundUpstreamModal.inboundId}/nodes`, {
+              nodeIds: this.inboundUpstreamModal.nodeIds
+            });
+          if (msg.success) {
+            this.$message.success('已保存');
+            this.inboundUpstreamModal.visible = false;
+          }
+        } finally {
+          this.inboundUpstreamModal.saving = false;
+        }
+      },
+      isNodeSelected(selectedIds, nodeId) {
+        return Array.isArray(selectedIds) && selectedIds.includes(nodeId);
+      },
+      setNodeSelected(target, key, nodeId, checked) {
+        const selected = Array.isArray(target[key]) ? target[key].slice() : [];
+        const index = selected.indexOf(nodeId);
+        if (checked && index < 0) {
+          selected.push(nodeId);
+        }
+        if (!checked && index >= 0) {
+          selected.splice(index, 1);
+        }
+        this.$set(target, key, selected);
+      },
+      setGroupSelected(target, key, group, checked) {
+        const selected = new Set(Array.isArray(target[key]) ? target[key] : []);
+        for (const node of group.nodes) {
+          if (checked) {
+            selected.add(node.id);
+          } else {
+            selected.delete(node.id);
+          }
+        }
+        this.$set(target, key, Array.from(selected));
+      },
+      isGroupAllSelected(selectedIds, group) {
+        if (!group.nodes.length) return false;
+        return group.nodes.every(node => this.isNodeSelected(selectedIds, node.id));
+      },
+      isGroupPartSelected(selectedIds, group) {
+        const selectedCount = group.nodes.filter(node => this.isNodeSelected(selectedIds, node.id)).length;
+        return selectedCount > 0 && selectedCount < group.nodes.length;
       },
       setInbounds(dbInbounds) {
         this.inbounds.splice(0);
@@ -1473,6 +1601,9 @@
             break;
           case "clipboard":
             this.copy(dbInbound.id);
+            break;
+          case "upstreamNodes":
+            this.openInboundUpstreamNodes(dbInbound);
             break;
           case "resetTraffic":
             this.resetTraffic(dbInbound.id);
@@ -2359,6 +2490,21 @@
           depleted: depleted,
           expiring: expiring,
         };
+      },
+      groupedUpstreamNodes() {
+        const map = {};
+        for (const node of this.upstreamNodes) {
+          const upstreamId = node.upstreamId || 0;
+          if (!map[upstreamId]) {
+            map[upstreamId] = {
+              upstreamId,
+              name: node.upstreamName || '未分组',
+              nodes: [],
+            };
+          }
+          map[upstreamId].nodes.push(node);
+        }
+        return Object.keys(map).map(key => map[key]);
       }
     },
   });
@@ -2416,6 +2562,45 @@
     text-overflow: ellipsis;
   }
 
+  .node-checkbox-group {
+    width: 100%;
+    max-height: 390px;
+    overflow: auto;
+    padding-right: 6px;
+  }
+
+  .node-group {
+    border-top: 1px solid rgba(127, 127, 127, .18);
+    padding: 12px 0;
+  }
+
+  .node-group:first-child {
+    border-top: 0;
+    padding-top: 0;
+  }
+
+  .node-group-title {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .node-group-title .ant-space {
+    width: auto;
+  }
+
+  .node-name {
+    display: inline-block;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
+  }
+
   @media (max-width: 768px) {
     #content-layout>.ant-layout-content>.ant-spin-nested-loading>div>.ant-spin {
       left: 50vw !important;
@@ -2423,6 +2608,15 @@
 
     .traffic-reset-stat-action {
       justify-content: flex-start;
+    }
+
+    .node-group-title {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+
+    .node-name {
+      max-width: 190px;
     }
   }
 </style>
