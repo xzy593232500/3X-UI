@@ -1,9 +1,11 @@
 package service
 
 import (
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
 	"os"
@@ -16,10 +18,13 @@ import (
 	"github.com/mhsanaei/3x-ui/v2/database"
 	"github.com/mhsanaei/3x-ui/v2/util/json_util"
 	"github.com/mhsanaei/3x-ui/v2/xray"
+
+	"gorm.io/gorm"
 )
 
 const (
-	defaultRelayPortBase = 30000
+	defaultRelayPortMin = 30000
+	defaultRelayPortMax = 50000
 	relayModeDirect     = "direct"
 )
 
@@ -27,6 +32,7 @@ type relayGrantRow struct {
 	NodeID      int    `gorm:"column:node_id"`
 	NodeName    string `gorm:"column:node_name"`
 	Link        string `gorm:"column:link"`
+	RelayPort   int    `gorm:"column:relay_port"`
 	SubjectKey  string `gorm:"column:subject_key"`
 	SubjectName string `gorm:"column:subject_name"`
 	SubjectType string `gorm:"column:subject_type"`
@@ -36,6 +42,7 @@ type relayRuntimeNode struct {
 	ID      int
 	Name    string
 	Link    string
+	Port    int
 	Clients map[string]relayRuntimeClient
 }
 
@@ -62,6 +69,9 @@ func SubscriptionRelayPublicHost(requestHost string) string {
 func (s *SubscriptionMarketService) ApplyRelayXrayConfig(config *xray.Config) error {
 	if config == nil || !SubscriptionRelayEnabled() {
 		return nil
+	}
+	if err := s.EnsureRelayPorts(); err != nil {
+		return err
 	}
 	nodes, err := s.activeRelayRuntimeNodes()
 	if err != nil {
@@ -121,6 +131,92 @@ func (s *SubscriptionMarketService) DisableExpiredCustomers() (int64, error) {
 	return result.RowsAffected, result.Error
 }
 
+func (s *SubscriptionMarketService) EnsureRelayPorts() error {
+	if !SubscriptionRelayEnabled() {
+		return nil
+	}
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		return s.ensureRelayPorts(tx)
+	})
+}
+
+func (s *SubscriptionMarketService) ensureRelayPorts(tx *gorm.DB) error {
+	var rows []struct {
+		ID        int `gorm:"column:id"`
+		RelayPort int `gorm:"column:relay_port"`
+	}
+	if err := tx.Table("upstream_nodes").
+		Select("id, relay_port").
+		Where("protocol = ? AND link <> ''", "vmess").
+		Order("id asc").
+		Scan(&rows).Error; err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if relayPortFromValue(row.RelayPort) > 0 {
+			continue
+		}
+		port, err := s.allocateRelayPort(tx, row.ID)
+		if err != nil {
+			return err
+		}
+		if err := tx.Table("upstream_nodes").
+			Where("id = ?", row.ID).
+			Update("relay_port", port).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SubscriptionMarketService) allocateRelayPort(tx *gorm.DB, excludeNodeID int) (int, error) {
+	minPort, maxPort := relayPortRange()
+	used := make(map[int]bool)
+	var nodePorts []int
+	nodeQuery := tx.Table("upstream_nodes").Where("relay_port > 0")
+	if excludeNodeID > 0 {
+		nodeQuery = nodeQuery.Where("id <> ?", excludeNodeID)
+	}
+	if err := nodeQuery.Pluck("relay_port", &nodePorts).Error; err != nil {
+		return 0, err
+	}
+	for _, port := range nodePorts {
+		if port >= minPort && port <= maxPort {
+			used[port] = true
+		}
+	}
+
+	var inboundPorts []int
+	if err := tx.Table("inbounds").Where("port > 0").Pluck("port", &inboundPorts).Error; err != nil {
+		return 0, err
+	}
+	for _, port := range inboundPorts {
+		if port >= minPort && port <= maxPort {
+			used[port] = true
+		}
+	}
+
+	capacity := maxPort - minPort + 1
+	if capacity <= len(used) {
+		return 0, fmt.Errorf("no available upstream relay ports in %d-%d", minPort, maxPort)
+	}
+	for attempts := 0; attempts < 512; attempts++ {
+		port, err := randomRelayPort(minPort, maxPort)
+		if err != nil {
+			return 0, err
+		}
+		if !used[port] {
+			return port, nil
+		}
+	}
+	for port := minPort; port <= maxPort; port++ {
+		if !used[port] {
+			return port, nil
+		}
+	}
+	return 0, fmt.Errorf("no available upstream relay ports in %d-%d", minPort, maxPort)
+}
+
 func (s *SubscriptionMarketService) activeRelayRuntimeNodes() ([]relayRuntimeNode, error) {
 	rows, err := s.activeRelayGrantRows()
 	if err != nil {
@@ -128,7 +224,7 @@ func (s *SubscriptionMarketService) activeRelayRuntimeNodes() ([]relayRuntimeNod
 	}
 	byNode := make(map[int]*relayRuntimeNode)
 	for _, row := range rows {
-		if row.NodeID <= 0 || strings.TrimSpace(row.Link) == "" {
+		if row.NodeID <= 0 || relayPortFromValue(row.RelayPort) <= 0 || strings.TrimSpace(row.Link) == "" {
 			continue
 		}
 		node := byNode[row.NodeID]
@@ -137,6 +233,7 @@ func (s *SubscriptionMarketService) activeRelayRuntimeNodes() ([]relayRuntimeNod
 				ID:      row.NodeID,
 				Name:    row.NodeName,
 				Link:    row.Link,
+				Port:    row.RelayPort,
 				Clients: make(map[string]relayRuntimeClient),
 			}
 			byNode[row.NodeID] = node
@@ -171,6 +268,7 @@ func (s *SubscriptionMarketService) activeRelayGrantRows() ([]relayGrantRow, err
 			upstream_nodes.id AS node_id,
 			upstream_nodes.name AS node_name,
 			upstream_nodes.link,
+			upstream_nodes.relay_port,
 			customer_subscriptions.token AS subject_key,
 			customer_subscriptions.name AS subject_name,
 			'customer' AS subject_type`).
@@ -191,6 +289,7 @@ func (s *SubscriptionMarketService) activeRelayGrantRows() ([]relayGrantRow, err
 			upstream_nodes.id AS node_id,
 			upstream_nodes.name AS node_name,
 			upstream_nodes.link AS link,
+			upstream_nodes.relay_port AS relay_port,
 			JSON_EXTRACT(client.value, '$.subId') AS subject_key,
 			COALESCE(JSON_EXTRACT(client.value, '$.email'), JSON_EXTRACT(client.value, '$.subId')) AS subject_name,
 			'inbound' AS subject_type
@@ -219,7 +318,7 @@ func (s *SubscriptionMarketService) activeRelayGrantRows() ([]relayGrantRow, err
 }
 
 func buildRelayVMessInbound(node relayRuntimeNode) (xray.InboundConfig, bool) {
-	port := relayPortForNode(node.ID)
+	port := relayPortFromValue(node.Port)
 	if port <= 0 || len(node.Clients) == 0 {
 		return xray.InboundConfig{}, false
 	}
@@ -398,7 +497,7 @@ func buildRelayedUpstreamNodeContent(rows []upstreamNodeContentRow, relayHost st
 		if clientID == "" {
 			continue
 		}
-		port := relayPortForNode(row.ID)
+		port := relayPortFromValue(row.RelayPort)
 		if port <= 0 {
 			continue
 		}
@@ -418,7 +517,7 @@ func buildRelayedUpstreamNodeContent(rows []upstreamNodeContentRow, relayHost st
 			"type": "none",
 			"host": "",
 			"path": "",
-			"tls":  "",
+			"tls":  "none",
 		}
 		links = append(links, buildVMessRelayLink(obj))
 		clashProxies = append(clashProxies, map[string]any{
@@ -461,18 +560,64 @@ func relayClientEmail(subjectType, subjectKey string, nodeID int) string {
 	return fmt.Sprintf("relay-%s-%d-%x", subjectType, nodeID, sum[:4])
 }
 
-func relayPortForNode(nodeID int) int {
-	base := defaultRelayPortBase
-	if raw := strings.TrimSpace(os.Getenv("XUI_RELAY_PORT_BASE")); raw != "" {
-		if parsed, err := strconv.Atoi(raw); err == nil {
-			base = parsed
-		}
-	}
-	port := base + nodeID
+func relayPortFromValue(port int) int {
 	if port < 1 || port > 65535 {
 		return 0
 	}
 	return port
+}
+
+func relayPortRange() (int, int) {
+	minPort, hasMin := relayEnvInt("XUI_RELAY_PORT_MIN")
+	maxPort, hasMax := relayEnvInt("XUI_RELAY_PORT_MAX")
+	if !hasMin && !hasMax {
+		minPort = defaultRelayPortMin
+		if base, ok := relayEnvInt("XUI_RELAY_PORT_BASE"); ok {
+			minPort = base
+		}
+		maxPort = minPort + (defaultRelayPortMax - defaultRelayPortMin)
+	} else {
+		if !hasMin {
+			minPort = defaultRelayPortMin
+		}
+		if !hasMax {
+			maxPort = defaultRelayPortMax
+		}
+	}
+	if minPort < 1 {
+		minPort = 1
+	}
+	if maxPort > 65535 {
+		maxPort = 65535
+	}
+	if maxPort < minPort {
+		maxPort = minPort
+	}
+	return minPort, maxPort
+}
+
+func relayEnvInt(name string) (int, bool) {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return 0, false
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return 0, false
+	}
+	return value, true
+}
+
+func randomRelayPort(minPort, maxPort int) (int, error) {
+	if maxPort < minPort {
+		return 0, fmt.Errorf("invalid relay port range %d-%d", minPort, maxPort)
+	}
+	span := big.NewInt(int64(maxPort - minPort + 1))
+	offset, err := cryptorand.Int(cryptorand.Reader, span)
+	if err != nil {
+		return 0, err
+	}
+	return minPort + int(offset.Int64()), nil
 }
 
 func relayInboundTag(nodeID int) string {

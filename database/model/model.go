@@ -163,6 +163,7 @@ type UpstreamNode struct {
 	Clash      string `json:"clash" form:"clash" gorm:"type:text"`
 	SourceType string `json:"sourceType" form:"sourceType" gorm:"default:uri;column:source_type"`
 	Hash       string `json:"hash" form:"hash" gorm:"uniqueIndex:idx_upstream_node_hash"`
+	RelayPort  int    `json:"relayPort" form:"relayPort" gorm:"default:0;column:relay_port"`
 	Enable     bool   `json:"enable" form:"enable" gorm:"default:true"`
 	Sort       int    `json:"sort" form:"sort" gorm:"default:0"`
 	CreatedAt  int64  `json:"createdAt" gorm:"autoCreateTime;column:created_at"`

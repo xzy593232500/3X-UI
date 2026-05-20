@@ -103,10 +103,11 @@ XUI_PUBLIC_SUB_BASE_URL=http://你的服务器IP
 ```env
 XUI_UPSTREAM_RELAY_MODE=relay
 XUI_RELAY_PUBLIC_HOST=你的服务器IP或域名
-XUI_RELAY_PORT_BASE=30000
+XUI_RELAY_PORT_MIN=30000
+XUI_RELAY_PORT_MAX=50000
 ```
 
-中转端口按 `XUI_RELAY_PORT_BASE + 上游节点ID` 生成。请在服务器防火墙和云厂商安全组里放行这段 TCP 端口，例如 `30000-50000/tcp`。
+中转端口会在 `XUI_RELAY_PORT_MIN` 到 `XUI_RELAY_PORT_MAX` 范围内为每个上游节点随机分配，并保存在数据库里保持稳定。请在服务器防火墙和云厂商安全组里放行这段 TCP 端口，例如 `30000-50000/tcp`。
 
 默认账号密码通常是：
 
