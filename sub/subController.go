@@ -108,8 +108,9 @@ func (a *SUBController) subs(c *gin.Context) {
 		}
 
 		// If the request expects HTML (e.g., browser) or explicitly asked (?html=1 or ?view=html), render the info page here
+		forcePlain := wantsPlainSubscription(c)
 		accept := c.GetHeader("Accept")
-		if strings.Contains(strings.ToLower(accept), "text/html") || c.Query("html") == "1" || strings.EqualFold(c.Query("view"), "html") {
+		if !forcePlain && (strings.Contains(strings.ToLower(accept), "text/html") || c.Query("html") == "1" || strings.EqualFold(c.Query("view"), "html")) {
 			// Build page data in service
 			subURL, subJsonURL, subClashURL := a.subService.BuildURLs(scheme, hostWithPort, a.subPath, a.subJsonPath, a.subClashPath, subId)
 			if !a.jsonEnabled {
@@ -166,12 +167,19 @@ func (a *SUBController) subs(c *gin.Context) {
 		}
 		a.ApplyCommonHeaders(c, header, a.updateInterval, a.subTitle, a.subSupportUrl, profileUrl, a.subAnnounce, a.subEnableRouting, a.subRoutingRules)
 
-		if a.subEncrypt {
+		if a.subEncrypt && !forcePlain {
 			c.String(200, base64.StdEncoding.EncodeToString([]byte(result)))
 		} else {
 			c.String(200, result)
 		}
 	}
+}
+
+func wantsPlainSubscription(c *gin.Context) bool {
+	if c.Query("plain") == "1" || strings.EqualFold(c.Query("plain"), "true") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(c.GetHeader("User-Agent")), "shadowrocket")
 }
 
 // subJsons handles HTTP requests for JSON subscription configurations.

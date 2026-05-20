@@ -42,6 +42,9 @@
                   <span class="subscription-link">[[ record.subscriptionUrl ]]</span>
                 </a-tooltip>
                 <a-button size="small" icon="copy" @click="copySubscription(record.subscriptionUrl)"></a-button>
+                <a-tooltip title="Shadowrocket">
+                  <a-button size="small" icon="mobile" @click="copySubscription(shadowrocketSubscriptionUrl(record.subscriptionUrl))"></a-button>
+                </a-tooltip>
               </a-space>
             </template>
             <template slot="action" slot-scope="text, record">
@@ -306,6 +309,10 @@
       async copySubscription(link) {
         const ok = await ClipboardManager.copyText(link || '');
         this.$message[ok ? 'success' : 'error'](ok ? '已复制' : '复制失败');
+      },
+      shadowrocketSubscriptionUrl(link) {
+        if (!link) return '';
+        return link.includes('?') ? `${link}&plain=1` : `${link}?plain=1`;
       },
       isNodeSelected(selectedIds, nodeId) {
         return Array.isArray(selectedIds) && selectedIds.includes(nodeId);

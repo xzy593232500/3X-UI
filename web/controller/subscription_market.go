@@ -298,7 +298,7 @@ func (a *CustomerSubscriptionPublicController) customerSubscription(c *gin.Conte
 		return
 	}
 	result := strings.Join(content.Links, "\n") + "\n"
-	if c.Query("plain") == "1" || strings.EqualFold(c.Query("plain"), "true") {
+	if wantsPlainCustomerSubscription(c) {
 		c.String(http.StatusOK, result)
 		return
 	}
@@ -352,4 +352,11 @@ func writeCustomerSubscriptionError(c *gin.Context, err error) {
 	default:
 		c.String(http.StatusBadRequest, err.Error())
 	}
+}
+
+func wantsPlainCustomerSubscription(c *gin.Context) bool {
+	if c.Query("plain") == "1" || strings.EqualFold(c.Query("plain"), "true") {
+		return true
+	}
+	return strings.Contains(strings.ToLower(c.GetHeader("User-Agent")), "shadowrocket")
 }
