@@ -42,9 +42,6 @@
                   <span class="subscription-link">[[ record.subscriptionUrl ]]</span>
                 </a-tooltip>
                 <a-button size="small" icon="copy" @click="copySubscription(record.subscriptionUrl)"></a-button>
-                <a-tooltip title="Shadowrocket">
-                  <a-button size="small" icon="mobile" @click="copySubscription(shadowrocketSubscriptionUrl(record.subscriptionUrl))"></a-button>
-                </a-tooltip>
               </a-space>
             </template>
             <template slot="action" slot-scope="text, record">
@@ -310,10 +307,6 @@
         const ok = await ClipboardManager.copyText(link || '');
         this.$message[ok ? 'success' : 'error'](ok ? '已复制' : '复制失败');
       },
-      shadowrocketSubscriptionUrl(link) {
-        if (!link) return '';
-        return link.includes('?') ? `${link}&plain=1` : `${link}?plain=1`;
-      },
       isNodeSelected(selectedIds, nodeId) {
         return Array.isArray(selectedIds) && selectedIds.includes(nodeId);
       },
@@ -363,7 +356,11 @@
         if (expiresAt <= 0) return '不限';
         const diff = expiresAt - Date.now();
         if (diff <= 0) return '已到期';
-        return `剩余 ${Math.ceil(diff / 86400000)} 天`;
+        const days = Math.ceil(diff / 86400000);
+        if (days <= 1) return '今天';
+        if (days === 2) return '明天';
+        if (days === 3) return '后天';
+        return `${days}天`;
       },
       remainingDaysColor(value) {
         const expiresAt = Number(value || 0);
