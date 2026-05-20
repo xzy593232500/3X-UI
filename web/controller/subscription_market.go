@@ -16,6 +16,7 @@ import (
 type SubscriptionMarketAPIController struct {
 	BaseController
 	subscriptionMarket service.SubscriptionMarketService
+	xrayService        service.XrayService
 }
 
 type CustomerSubscriptionPublicController struct {
@@ -105,6 +106,7 @@ func (a *SubscriptionMarketAPIController) addUpstream(c *gin.Context) {
 	} else if syncErr != nil {
 		upstream.LastError = syncErr.Error()
 	}
+	a.xrayService.SetToNeedRestart()
 	jsonMsgObj(c, "add upstream subscription", upstream, nil)
 }
 
@@ -128,6 +130,7 @@ func (a *SubscriptionMarketAPIController) updateUpstream(c *gin.Context) {
 	} else if syncErr != nil {
 		upstream.LastError = syncErr.Error()
 	}
+	a.xrayService.SetToNeedRestart()
 	jsonMsgObj(c, "update upstream subscription", upstream, nil)
 }
 
@@ -137,6 +140,9 @@ func (a *SubscriptionMarketAPIController) deleteUpstream(c *gin.Context) {
 		return
 	}
 	err := a.subscriptionMarket.DeleteUpstream(id)
+	if err == nil {
+		a.xrayService.SetToNeedRestart()
+	}
 	jsonMsg(c, "delete upstream subscription", err)
 }
 
@@ -146,6 +152,9 @@ func (a *SubscriptionMarketAPIController) syncUpstream(c *gin.Context) {
 		return
 	}
 	upstream, err := a.subscriptionMarket.SyncUpstream(id)
+	if err == nil {
+		a.xrayService.SetToNeedRestart()
+	}
 	jsonMsgObj(c, "sync upstream subscription", upstream, err)
 }
 
@@ -160,6 +169,9 @@ func (a *SubscriptionMarketAPIController) toggleUpstream(c *gin.Context) {
 		return
 	}
 	err := a.subscriptionMarket.SetUpstreamEnable(id, form.Enable)
+	if err == nil {
+		a.xrayService.SetToNeedRestart()
+	}
 	jsonMsg(c, "toggle upstream subscription", err)
 }
 
@@ -180,6 +192,9 @@ func (a *SubscriptionMarketAPIController) toggleNode(c *gin.Context) {
 		return
 	}
 	err := a.subscriptionMarket.SetNodeEnable(id, form.Enable)
+	if err == nil {
+		a.xrayService.SetToNeedRestart()
+	}
 	jsonMsg(c, "toggle upstream node", err)
 }
 
@@ -202,6 +217,7 @@ func (a *SubscriptionMarketAPIController) addCustomer(c *gin.Context) {
 	customer, err := a.subscriptionMarket.CreateCustomer(form.Name, form.Enable, form.ExpiryTime, form.NodeIds)
 	if err == nil && customer != nil {
 		customer.SubscriptionURL = buildCustomerSubscriptionURL(c, customer.Token)
+		a.xrayService.SetToNeedRestart()
 	}
 	jsonMsgObj(c, "add customer subscription", customer, err)
 }
@@ -219,6 +235,7 @@ func (a *SubscriptionMarketAPIController) updateCustomer(c *gin.Context) {
 	customer, err := a.subscriptionMarket.UpdateCustomer(id, form.Name, form.Enable, form.ExpiryTime, form.NodeIds)
 	if err == nil && customer != nil {
 		customer.SubscriptionURL = buildCustomerSubscriptionURL(c, customer.Token)
+		a.xrayService.SetToNeedRestart()
 	}
 	jsonMsgObj(c, "update customer subscription", customer, err)
 }
@@ -234,6 +251,9 @@ func (a *SubscriptionMarketAPIController) toggleCustomer(c *gin.Context) {
 		return
 	}
 	err := a.subscriptionMarket.SetCustomerEnable(id, form.Enable)
+	if err == nil {
+		a.xrayService.SetToNeedRestart()
+	}
 	jsonMsg(c, "toggle customer subscription", err)
 }
 
@@ -243,6 +263,9 @@ func (a *SubscriptionMarketAPIController) deleteCustomer(c *gin.Context) {
 		return
 	}
 	err := a.subscriptionMarket.DeleteCustomer(id)
+	if err == nil {
+		a.xrayService.SetToNeedRestart()
+	}
 	jsonMsg(c, "delete customer subscription", err)
 }
 
@@ -266,12 +289,15 @@ func (a *SubscriptionMarketAPIController) updateInboundNodes(c *gin.Context) {
 		return
 	}
 	err := a.subscriptionMarket.SetInboundNodes(id, form.NodeIds)
+	if err == nil {
+		a.xrayService.SetToNeedRestart()
+	}
 	jsonMsg(c, "update inbound upstream nodes", err)
 }
 
 func (a *CustomerSubscriptionPublicController) customerSubscription(c *gin.Context) {
 	token := c.Param("token")
-	content, err := a.subscriptionMarket.GetCustomerSubscription(token)
+	content, err := a.subscriptionMarket.GetCustomerSubscription(token, service.SubscriptionRelayPublicHost(requestHostForRelay(c)))
 	if err != nil {
 		writeCustomerSubscriptionError(c, err)
 		return
@@ -304,6 +330,16 @@ func (a *CustomerSubscriptionPublicController) customerSubscription(c *gin.Conte
 		return
 	}
 	c.String(http.StatusOK, base64.StdEncoding.EncodeToString([]byte(result)))
+}
+
+func requestHostForRelay(c *gin.Context) string {
+	if host := c.GetHeader("X-Forwarded-Host"); host != "" {
+		return host
+	}
+	if host := c.GetHeader("X-Real-IP"); host != "" {
+		return host
+	}
+	return c.Request.Host
 }
 
 func parsePositiveID(c *gin.Context, value string) (int, bool) {

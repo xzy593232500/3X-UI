@@ -98,6 +98,16 @@ XUI_PUBLIC_SUB_BASE_URL=http://你的服务器IP
 
 设置后，客户订阅页面生成的客户订阅链接会优先使用这个公开地址。
 
+上游订阅默认使用中转模式，客户拿到的节点会连接到本服务器，再由本服务器连接上游节点。这样客户过期后，本服务器可以停止他的中转账号。相关 `.env.docker` 配置：
+
+```env
+XUI_UPSTREAM_RELAY_MODE=relay
+XUI_RELAY_PUBLIC_HOST=你的服务器IP或域名
+XUI_RELAY_PORT_BASE=30000
+```
+
+中转端口按 `XUI_RELAY_PORT_BASE + 上游节点ID` 生成。请在服务器防火墙和云厂商安全组里放行这段 TCP 端口，例如 `30000-50000/tcp`。
+
 默认账号密码通常是：
 
 ```text

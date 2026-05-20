@@ -328,6 +328,9 @@ func (s *Server) startTask() {
 	// check inbound-level device limits from access log every 10 sec
 	s.cron.AddJob("@every 10s", job.NewCheckDeviceLimitJob(&s.xrayService))
 
+	// disable expired customer subscriptions so relayed upstream nodes stop working
+	s.cron.AddJob("@every 10s", job.NewCustomerSubscriptionExpiryJob())
+
 	// check client ips from log file every day
 	s.cron.AddJob("@daily", job.NewClearLogsJob())
 

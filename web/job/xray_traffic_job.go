@@ -46,7 +46,7 @@ func (j *XrayTrafficJob) Run() {
 		if settingErr != nil {
 			logger.Warning("get RestartXrayOnClientDisable failed:", settingErr)
 		}
-		if restartOnDisable {
+		if restartOnDisable || service.SubscriptionRelayEnabled() {
 			if err := j.xrayService.RestartXray(true); err != nil {
 				logger.Warning("restart xray after disabling clients failed:", err)
 				j.xrayService.SetToNeedRestart()

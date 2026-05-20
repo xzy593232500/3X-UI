@@ -62,7 +62,7 @@ func (s *SubClashService) GetClash(subId string, host string) (string, string, e
 		}
 	}
 
-	if upstreamContent, err := (&service.SubscriptionMarketService{}).GetInboundSubscriptionContent(subId); err == nil && upstreamContent != nil {
+	if upstreamContent, err := (&service.SubscriptionMarketService{}).GetInboundSubscriptionContent(subId, host); err == nil && upstreamContent != nil {
 		proxies = append(proxies, upstreamContent.ClashProxy...)
 	} else if err != nil {
 		logger.Warning("SubClashService - GetInboundSubscriptionContent: ", err)

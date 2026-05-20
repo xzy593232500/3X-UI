@@ -82,6 +82,8 @@ type upstreamNodeContentRow struct {
 	ID             int
 	UpstreamSortID int
 	Sort           int
+	Name           string
+	Protocol       string
 	Link           string
 	Clash          string
 }
@@ -455,7 +457,7 @@ func (s *SubscriptionMarketService) SetInboundNodes(inboundID int, nodeIDs []int
 	})
 }
 
-func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) (*InboundSubscriptionContent, error) {
+func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string, relayHost string) (*InboundSubscriptionContent, error) {
 	inboundIDs, err := s.inboundIDsBySubID(subID)
 	if err != nil {
 		return nil, err
@@ -466,7 +468,7 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) 
 
 	var rows []upstreamNodeContentRow
 	err = database.GetDB().Table("inbound_subscription_nodes").
-		Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
+		Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.clash").
 		Joins("JOIN upstream_nodes ON upstream_nodes.id = inbound_subscription_nodes.node_id").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Where("inbound_subscription_nodes.inbound_id IN ?", inboundIDs).
@@ -478,13 +480,20 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) 
 	}
 
 	links, clashProxies := buildUpstreamNodeContent(rows)
+	if SubscriptionRelayEnabled() {
+		relayLinks, relayClashProxies := buildRelayedUpstreamNodeContent(rows, relayHost, func(nodeID int) string {
+			return relayInboundClientID(subID, nodeID)
+		})
+		links = relayLinks
+		clashProxies = relayClashProxies
+	}
 	return &InboundSubscriptionContent{
 		Links:      links,
 		ClashProxy: clashProxies,
 	}, nil
 }
 
-func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*CustomerSubscriptionContent, error) {
+func (s *SubscriptionMarketService) GetCustomerSubscription(token string, relayHost string) (*CustomerSubscriptionContent, error) {
 	token = strings.TrimSpace(token)
 	var customer model.CustomerSubscription
 	db := database.GetDB()
@@ -500,7 +509,7 @@ func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*Cust
 
 	var rows []upstreamNodeContentRow
 	err := db.Table("customer_subscription_nodes").
-		Select("upstream_nodes.link, upstream_nodes.clash").
+		Select("upstream_nodes.id, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.clash").
 		Joins("JOIN upstream_nodes ON upstream_nodes.id = customer_subscription_nodes.node_id").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Where("customer_subscription_nodes.customer_id = ?", customer.Id).
@@ -512,6 +521,13 @@ func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*Cust
 	}
 
 	links, clashProxies := buildUpstreamNodeContent(rows)
+	if SubscriptionRelayEnabled() {
+		relayLinks, relayClashProxies := buildRelayedUpstreamNodeContent(rows, relayHost, func(nodeID int) string {
+			return relayCustomerClientID(customer.Token, nodeID)
+		})
+		links = relayLinks
+		clashProxies = relayClashProxies
+	}
 	if len(links) == 0 && len(clashProxies) == 0 {
 		return nil, ErrCustomerNoEnabledNodes
 	}

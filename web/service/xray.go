@@ -201,6 +201,9 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 			return nil, err
 		}
 	}
+	if err := (&SubscriptionMarketService{}).ApplyRelayXrayConfig(xrayConfig); err != nil {
+		return nil, err
+	}
 	return xrayConfig, nil
 }
 
