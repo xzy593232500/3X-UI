@@ -854,10 +854,11 @@ func parseClashNodes(content string) []parsedUpstreamNode {
 		name, _ := proxy["name"].(string)
 		protocol, _ := proxy["type"].(string)
 		name = strings.TrimSpace(name)
-		protocol = strings.TrimSpace(protocol)
+		protocol = normalizeClashProtocol(protocol)
 		if name == "" || protocol == "" {
 			continue
 		}
+		link := clashProxyShareLink(proxy, protocol, name)
 		encoded, err := json.Marshal(proxy)
 		if err != nil {
 			continue
@@ -865,11 +866,441 @@ func parseClashNodes(content string) []parsedUpstreamNode {
 		nodes = append(nodes, parsedUpstreamNode{
 			Name:       name,
 			Protocol:   protocol,
+			Link:       link,
 			Clash:      string(encoded),
 			SourceType: "clash",
 		})
 	}
 	return nodes
+}
+
+func normalizeClashProtocol(protocol string) string {
+	protocol = strings.ToLower(strings.TrimSpace(protocol))
+	if protocol == "shadowsocks" {
+		return "ss"
+	}
+	return protocol
+}
+
+func clashProxyShareLink(proxy map[string]any, protocol, name string) string {
+	switch protocol {
+	case "vmess":
+		return clashVMessShareLink(proxy, name)
+	case "vless":
+		return clashVLESSShareLink(proxy, name)
+	case "trojan":
+		return clashTrojanShareLink(proxy, name)
+	case "ss":
+		return clashSSShareLink(proxy, name)
+	default:
+		return ""
+	}
+}
+
+func clashVMessShareLink(proxy map[string]any, name string) string {
+	server, port, ok := clashServerPort(proxy)
+	uuid := clashString(proxy, "uuid")
+	if !ok || uuid == "" {
+		return ""
+	}
+	network := normalizeClashNetwork(clashString(proxy, "network"), "tcp")
+	obj := map[string]any{
+		"v":    "2",
+		"ps":   name,
+		"add":  server,
+		"port": port,
+		"id":   uuid,
+		"aid":  clashIntAny(firstClashValue(proxy, "alterId", "alterID", "aid")),
+		"scy":  firstNonEmpty(clashString(proxy, "cipher"), "auto"),
+		"net":  vmessNetworkName(network),
+		"type": "none",
+		"host": "",
+		"path": "",
+		"tls":  "",
+	}
+	if clashTLSEnabled(proxy) {
+		obj["tls"] = "tls"
+	}
+	applyClashVMessTransport(proxy, network, obj)
+	applyClashVMessTLS(proxy, obj)
+	encoded, _ := json.Marshal(obj)
+	return "vmess://" + base64.StdEncoding.EncodeToString(encoded)
+}
+
+func clashVLESSShareLink(proxy map[string]any, name string) string {
+	server, port, ok := clashServerPort(proxy)
+	uuid := clashString(proxy, "uuid")
+	if !ok || uuid == "" {
+		return ""
+	}
+	params := url.Values{}
+	params.Set("encryption", "none")
+	applyClashShareParams(proxy, params)
+	if flow := clashString(proxy, "flow"); flow != "" {
+		params.Set("flow", flow)
+	}
+	return buildClashURI("vless", uuid, server, port, params, name)
+}
+
+func clashTrojanShareLink(proxy map[string]any, name string) string {
+	server, port, ok := clashServerPort(proxy)
+	password := clashString(proxy, "password")
+	if !ok || password == "" {
+		return ""
+	}
+	params := url.Values{}
+	applyClashShareParams(proxy, params)
+	return buildClashURI("trojan", password, server, port, params, name)
+}
+
+func clashSSShareLink(proxy map[string]any, name string) string {
+	server, port, ok := clashServerPort(proxy)
+	cipher := clashString(proxy, "cipher")
+	password := clashString(proxy, "password")
+	if !ok || cipher == "" || password == "" {
+		return ""
+	}
+	userInfo := base64.RawURLEncoding.EncodeToString([]byte(cipher + ":" + password))
+	params := url.Values{}
+	if plugin := clashString(proxy, "plugin"); plugin != "" {
+		pluginValue := plugin
+		if opts := clashString(proxy, "plugin-opts"); opts != "" {
+			pluginValue += ";" + opts
+		}
+		params.Set("plugin", pluginValue)
+	}
+	return buildClashURI("ss", userInfo, server, port, params, name)
+}
+
+func applyClashShareParams(proxy map[string]any, params url.Values) {
+	network := normalizeClashNetwork(clashString(proxy, "network"), "tcp")
+	params.Set("type", network)
+	if clashTLSEnabled(proxy) {
+		params.Set("security", "tls")
+	} else {
+		params.Set("security", "none")
+	}
+	applyClashShareTLS(proxy, params)
+	applyClashShareTransport(proxy, network, params)
+}
+
+func applyClashShareTLS(proxy map[string]any, params url.Values) {
+	if sni := firstNonEmpty(clashString(proxy, "servername"), clashString(proxy, "sni"), clashString(proxy, "server-name")); sni != "" {
+		params.Set("sni", sni)
+	}
+	if fingerprint := firstNonEmpty(clashString(proxy, "client-fingerprint"), clashString(proxy, "fingerprint"), clashString(proxy, "fp")); fingerprint != "" {
+		params.Set("fp", fingerprint)
+	}
+	if alpn := clashStringList(proxy, "alpn"); len(alpn) > 0 {
+		params.Set("alpn", strings.Join(alpn, ","))
+	}
+	if clashBool(proxy, "skip-cert-verify") || clashBool(proxy, "allow-insecure") {
+		params.Set("allowInsecure", "1")
+	}
+}
+
+func applyClashShareTransport(proxy map[string]any, network string, params url.Values) {
+	switch network {
+	case "ws":
+		ws := clashMap(proxy, "ws-opts")
+		if path := firstNonEmpty(clashStringFromMap(ws, "path"), clashString(proxy, "path")); path != "" {
+			params.Set("path", path)
+		}
+		if host := clashWSHost(proxy, ws); host != "" {
+			params.Set("host", host)
+		}
+	case "grpc":
+		grpc := clashMap(proxy, "grpc-opts")
+		if serviceName := firstNonEmpty(
+			clashStringFromMap(grpc, "grpc-service-name"),
+			clashStringFromMap(grpc, "serviceName"),
+			clashStringFromMap(grpc, "service-name"),
+			clashString(proxy, "grpc-service-name"),
+		); serviceName != "" {
+			params.Set("serviceName", serviceName)
+		}
+		if mode := clashStringFromMap(grpc, "mode"); mode != "" {
+			params.Set("mode", mode)
+		}
+	case "http", "h2":
+		httpOpts := clashMap(proxy, "h2-opts")
+		if len(httpOpts) == 0 {
+			httpOpts = clashMap(proxy, "http-opts")
+		}
+		if path := firstNonEmpty(clashFirstStringFromMap(httpOpts, "path"), clashString(proxy, "path")); path != "" {
+			params.Set("path", path)
+		}
+		if host := firstNonEmpty(clashFirstStringFromMap(httpOpts, "host"), clashString(proxy, "host")); host != "" {
+			params.Set("host", host)
+		}
+	}
+}
+
+func applyClashVMessTransport(proxy map[string]any, network string, obj map[string]any) {
+	switch network {
+	case "ws":
+		ws := clashMap(proxy, "ws-opts")
+		if path := firstNonEmpty(clashStringFromMap(ws, "path"), clashString(proxy, "path")); path != "" {
+			obj["path"] = path
+		}
+		if host := clashWSHost(proxy, ws); host != "" {
+			obj["host"] = host
+		}
+	case "grpc":
+		grpc := clashMap(proxy, "grpc-opts")
+		if serviceName := firstNonEmpty(
+			clashStringFromMap(grpc, "grpc-service-name"),
+			clashStringFromMap(grpc, "serviceName"),
+			clashStringFromMap(grpc, "service-name"),
+			clashString(proxy, "grpc-service-name"),
+		); serviceName != "" {
+			obj["path"] = serviceName
+		}
+	case "http", "h2":
+		httpOpts := clashMap(proxy, "h2-opts")
+		if len(httpOpts) == 0 {
+			httpOpts = clashMap(proxy, "http-opts")
+		}
+		if path := firstNonEmpty(clashFirstStringFromMap(httpOpts, "path"), clashString(proxy, "path")); path != "" {
+			obj["path"] = path
+		}
+		if host := firstNonEmpty(clashFirstStringFromMap(httpOpts, "host"), clashString(proxy, "host")); host != "" {
+			obj["host"] = host
+		}
+	}
+}
+
+func applyClashVMessTLS(proxy map[string]any, obj map[string]any) {
+	if sni := firstNonEmpty(clashString(proxy, "servername"), clashString(proxy, "sni"), clashString(proxy, "server-name")); sni != "" {
+		obj["sni"] = sni
+	}
+	if fingerprint := firstNonEmpty(clashString(proxy, "client-fingerprint"), clashString(proxy, "fingerprint"), clashString(proxy, "fp")); fingerprint != "" {
+		obj["fp"] = fingerprint
+	}
+	if alpn := clashStringList(proxy, "alpn"); len(alpn) > 0 {
+		obj["alpn"] = strings.Join(alpn, ",")
+	}
+	if clashBool(proxy, "skip-cert-verify") || clashBool(proxy, "allow-insecure") {
+		obj["allowInsecure"] = "1"
+	}
+}
+
+func buildClashURI(scheme, userInfo, server string, port int, params url.Values, name string) string {
+	query := params.Encode()
+	if query != "" {
+		query = "?" + query
+	}
+	fragment := ""
+	if strings.TrimSpace(name) != "" {
+		fragment = "#" + url.QueryEscape(strings.TrimSpace(name))
+	}
+	return fmt.Sprintf("%s://%s@%s%s%s", scheme, url.User(userInfo).String(), formatClashHostPort(server, port), query, fragment)
+}
+
+func clashServerPort(proxy map[string]any) (string, int, bool) {
+	server := firstNonEmpty(clashString(proxy, "server"), clashString(proxy, "add"), clashString(proxy, "address"))
+	port := clashInt(proxy, "port")
+	return server, port, server != "" && port > 0
+}
+
+func normalizeClashNetwork(network, fallback string) string {
+	network = strings.ToLower(strings.TrimSpace(network))
+	if network == "" {
+		return fallback
+	}
+	if network == "h2" {
+		return "http"
+	}
+	return network
+}
+
+func vmessNetworkName(network string) string {
+	if network == "http" {
+		return "h2"
+	}
+	return network
+}
+
+func clashTLSEnabled(proxy map[string]any) bool {
+	return clashBool(proxy, "tls") || strings.EqualFold(clashString(proxy, "security"), "tls")
+}
+
+func clashWSHost(proxy map[string]any, ws map[string]any) string {
+	if headers := clashMapFromMap(ws, "headers"); len(headers) > 0 {
+		if host := firstNonEmpty(clashStringFromMap(headers, "Host"), clashStringFromMap(headers, "host")); host != "" {
+			return host
+		}
+	}
+	if headers := clashMap(proxy, "headers"); len(headers) > 0 {
+		if host := firstNonEmpty(clashStringFromMap(headers, "Host"), clashStringFromMap(headers, "host")); host != "" {
+			return host
+		}
+	}
+	return firstNonEmpty(clashString(proxy, "host"), clashString(proxy, "servername"), clashString(proxy, "sni"))
+}
+
+func firstClashValue(values map[string]any, keys ...string) any {
+	for _, key := range keys {
+		if value, ok := values[key]; ok {
+			return value
+		}
+	}
+	return nil
+}
+
+func clashString(values map[string]any, key string) string {
+	return clashStringAny(values[key])
+}
+
+func clashStringFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	return clashStringAny(values[key])
+}
+
+func clashStringAny(value any) string {
+	switch v := value.(type) {
+	case string:
+		return strings.TrimSpace(v)
+	case int:
+		return strconv.Itoa(v)
+	case int64:
+		return strconv.FormatInt(v, 10)
+	case float64:
+		return strconv.FormatInt(int64(v), 10)
+	case bool:
+		if v {
+			return "true"
+		}
+		return "false"
+	default:
+		return ""
+	}
+}
+
+func clashInt(values map[string]any, key string) int {
+	return clashIntAny(values[key])
+}
+
+func clashIntAny(value any) int {
+	switch v := value.(type) {
+	case int:
+		return v
+	case int64:
+		return int(v)
+	case float64:
+		return int(v)
+	case string:
+		parsed, _ := strconv.Atoi(strings.TrimSpace(v))
+		return parsed
+	default:
+		return 0
+	}
+}
+
+func clashBool(values map[string]any, key string) bool {
+	switch v := values[key].(type) {
+	case bool:
+		return v
+	case string:
+		v = strings.ToLower(strings.TrimSpace(v))
+		return v == "true" || v == "1" || v == "yes" || v == "tls"
+	case int:
+		return v != 0
+	case float64:
+		return v != 0
+	default:
+		return false
+	}
+}
+
+func clashMap(values map[string]any, key string) map[string]any {
+	return clashMapAny(values[key])
+}
+
+func clashMapFromMap(values map[string]any, key string) map[string]any {
+	if values == nil {
+		return nil
+	}
+	return clashMapAny(values[key])
+}
+
+func clashMapAny(value any) map[string]any {
+	if result, ok := value.(map[string]any); ok {
+		return result
+	}
+	return nil
+}
+
+func clashStringList(values map[string]any, key string) []string {
+	switch v := values[key].(type) {
+	case []any:
+		result := make([]string, 0, len(v))
+		for _, item := range v {
+			if text := clashStringAny(item); text != "" {
+				result = append(result, text)
+			}
+		}
+		return result
+	case []string:
+		return v
+	case string:
+		return splitNonEmpty(v, ",")
+	default:
+		return nil
+	}
+}
+
+func clashFirstStringFromMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	switch v := values[key].(type) {
+	case []any:
+		for _, item := range v {
+			if text := clashStringAny(item); text != "" {
+				return text
+			}
+		}
+	case []string:
+		for _, item := range v {
+			if text := strings.TrimSpace(item); text != "" {
+				return text
+			}
+		}
+	default:
+		return clashStringAny(v)
+	}
+	return ""
+}
+
+func splitNonEmpty(value, sep string) []string {
+	parts := strings.Split(value, sep)
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part = strings.TrimSpace(part); part != "" {
+			result = append(result, part)
+		}
+	}
+	return result
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func formatClashHostPort(host string, port int) string {
+	host = strings.TrimSpace(host)
+	if strings.Contains(host, ":") && !strings.HasPrefix(host, "[") {
+		host = "[" + host + "]"
+	}
+	return fmt.Sprintf("%s:%d", host, port)
 }
 
 func decodeBase64Subscription(content string) (string, bool) {
