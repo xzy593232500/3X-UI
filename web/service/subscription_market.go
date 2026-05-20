@@ -879,6 +879,9 @@ func normalizeClashProtocol(protocol string) string {
 	if protocol == "shadowsocks" {
 		return "ss"
 	}
+	if protocol == "hy2" {
+		return "hysteria2"
+	}
 	return protocol
 }
 
@@ -892,6 +895,8 @@ func clashProxyShareLink(proxy map[string]any, protocol, name string) string {
 		return clashTrojanShareLink(proxy, name)
 	case "ss":
 		return clashSSShareLink(proxy, name)
+	case "hysteria2", "hy2":
+		return clashHysteria2ShareLink(proxy, name)
 	default:
 		return ""
 	}
@@ -970,6 +975,44 @@ func clashSSShareLink(proxy map[string]any, name string) string {
 		params.Set("plugin", pluginValue)
 	}
 	return buildClashURI("ss", userInfo, server, port, params, name)
+}
+
+func clashHysteria2ShareLink(proxy map[string]any, name string) string {
+	server, port, ok := clashServerPort(proxy)
+	password := firstNonEmpty(clashString(proxy, "password"), clashString(proxy, "auth"))
+	if !ok || password == "" {
+		return ""
+	}
+	params := url.Values{}
+	params.Set("security", "tls")
+	if sni := firstNonEmpty(clashString(proxy, "sni"), clashString(proxy, "servername"), clashString(proxy, "server-name")); sni != "" {
+		params.Set("sni", sni)
+	}
+	if alpn := clashStringList(proxy, "alpn"); len(alpn) > 0 {
+		params.Set("alpn", strings.Join(alpn, ","))
+	}
+	if clashBool(proxy, "skip-cert-verify") || clashBool(proxy, "allow-insecure") || clashBool(proxy, "insecure") {
+		params.Set("insecure", "1")
+	}
+	if obfs := clashString(proxy, "obfs"); obfs != "" {
+		params.Set("obfs", obfs)
+	}
+	if obfsPassword := firstNonEmpty(clashString(proxy, "obfs-password"), clashString(proxy, "obfs_password")); obfsPassword != "" {
+		params.Set("obfs-password", obfsPassword)
+	}
+	if pin := firstNonEmpty(clashString(proxy, "pinSHA256"), clashString(proxy, "pin-sha256")); pin != "" {
+		params.Set("pinSHA256", pin)
+	}
+	if up := clashString(proxy, "up"); up != "" {
+		params.Set("up", up)
+	}
+	if down := clashString(proxy, "down"); down != "" {
+		params.Set("down", down)
+	}
+	if congestion := clashString(proxy, "congestion"); congestion != "" {
+		params.Set("congestion", congestion)
+	}
+	return buildClashURI("hysteria2", password, server, port, params, name)
 }
 
 func applyClashShareParams(proxy map[string]any, params url.Values) {

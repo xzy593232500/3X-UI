@@ -80,3 +80,43 @@ proxies:
 		t.Fatalf("unexpected vmess payload: %+v", obj)
 	}
 }
+
+func TestParseClashNodesBuildsHysteria2Link(t *testing.T) {
+	nodes := parseClashNodes(`
+proxies:
+  - name: HY2 Node
+    type: hysteria2
+    server: hy2.example.com
+    port: 8443
+    password: secret-pass
+    sni: hy2.example.com
+    skip-cert-verify: true
+    obfs: salamander
+    obfs-password: obfs-pass
+    alpn:
+      - h3
+`)
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+	if nodes[0].Protocol != "hysteria2" {
+		t.Fatalf("expected hysteria2 protocol, got %q", nodes[0].Protocol)
+	}
+	parsed, err := url.Parse(nodes[0].Link)
+	if err != nil {
+		t.Fatalf("parse share link: %v", err)
+	}
+	if parsed.Scheme != "hysteria2" || parsed.Host != "hy2.example.com:8443" {
+		t.Fatalf("unexpected hysteria2 link: %s", nodes[0].Link)
+	}
+	if password, _ := parsed.User.Password(); password != "secret-pass" {
+		t.Fatalf("unexpected hysteria2 password: %q", password)
+	}
+	query := parsed.Query()
+	if query.Get("security") != "tls" || query.Get("sni") != "hy2.example.com" || query.Get("insecure") != "1" {
+		t.Fatalf("missing hysteria2 TLS params in %s", nodes[0].Link)
+	}
+	if query.Get("obfs") != "salamander" || query.Get("obfs-password") != "obfs-pass" || query.Get("alpn") != "h3" {
+		t.Fatalf("missing hysteria2 options in %s", nodes[0].Link)
+	}
+}
