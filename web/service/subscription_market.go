@@ -24,6 +24,14 @@ import (
 
 const upstreamFetchTimeout = 20 * time.Second
 
+var upstreamFetchUserAgents = []string{
+	"v2rayN/7.0",
+	"V2Ray/5.0",
+	"v2rayNG/1.9.0",
+	"Shadowrocket/2.2.43",
+	"3x-ui-subscription-market/1.0",
+}
+
 var (
 	ErrSubscriptionURLRequired   = errors.New("subscription URL is required")
 	ErrSubscriptionInvalidURL    = errors.New("subscription URL must be a valid http or https URL")
@@ -734,12 +742,30 @@ func sanitizeHTTPURL(raw string) (string, error) {
 }
 
 func fetchUpstreamSubscription(rawURL string) (string, upstreamTrafficInfo, error) {
+	var firstErr error
+	for _, userAgent := range upstreamFetchUserAgents {
+		body, info, err := fetchUpstreamSubscriptionWithUserAgent(rawURL, userAgent)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		return body, info, nil
+	}
+	if firstErr != nil {
+		return "", upstreamTrafficInfo{}, firstErr
+	}
+	return "", upstreamTrafficInfo{}, ErrSubscriptionNoNodes
+}
+
+func fetchUpstreamSubscriptionWithUserAgent(rawURL, userAgent string) (string, upstreamTrafficInfo, error) {
 	client := &http.Client{Timeout: upstreamFetchTimeout}
 	req, err := http.NewRequest(http.MethodGet, rawURL, nil)
 	if err != nil {
 		return "", upstreamTrafficInfo{}, err
 	}
-	req.Header.Set("User-Agent", "3x-ui-subscription-market/1.0")
+	req.Header.Set("User-Agent", userAgent)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", upstreamTrafficInfo{}, err
