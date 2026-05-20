@@ -852,8 +852,12 @@ func parseURINodes(content string) []parsedUpstreamNode {
 		if protocol == "" {
 			continue
 		}
+		name := subscriptionURIName(link)
+		if isSubscriptionInfoNodeName(name) {
+			continue
+		}
 		nodes = append(nodes, parsedUpstreamNode{
-			Name:       subscriptionURIName(link),
+			Name:       name,
 			Protocol:   protocol,
 			Link:       link,
 			SourceType: "uri",
@@ -882,6 +886,9 @@ func parseClashNodes(content string) []parsedUpstreamNode {
 		name = strings.TrimSpace(name)
 		protocol = normalizeClashProtocol(protocol)
 		if name == "" || protocol == "" {
+			continue
+		}
+		if isSubscriptionInfoNodeName(name) {
 			continue
 		}
 		link := clashProxyShareLink(proxy, protocol, name)
@@ -1448,6 +1455,32 @@ func subscriptionURIName(link string) string {
 		protocol = "node"
 	}
 	return strings.ToUpper(protocol) + " node"
+}
+
+func isSubscriptionInfoNodeName(name string) bool {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		return false
+	}
+	infoPrefixes := []string{
+		"剩余流量",
+		"剩余容量",
+		"流量剩余",
+		"过期时间",
+		"到期时间",
+		"套餐到期",
+		"expire",
+		"expired",
+		"remaining traffic",
+		"traffic remaining",
+		"remaining data",
+	}
+	for _, prefix := range infoPrefixes {
+		if strings.HasPrefix(name, strings.ToLower(prefix)) {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeBase64Any(content string) (string, bool) {

@@ -120,3 +120,40 @@ proxies:
 		t.Fatalf("missing hysteria2 options in %s", nodes[0].Link)
 	}
 }
+
+func TestParseURINodesSkipsSubscriptionInfoVMessNodes(t *testing.T) {
+	info := map[string]any{
+		"v":    "2",
+		"ps":   "剩余流量：101.17GB",
+		"add":  "example.com",
+		"port": "80",
+		"id":   "513faacc-68f8-3577-8f53-b10dc068c8ea",
+		"aid":  "0",
+		"scy":  "auto",
+		"net":  "tcp",
+		"type": "none",
+		"tls":  "",
+	}
+	valid := map[string]any{
+		"v":    "2",
+		"ps":   "HK Node",
+		"add":  "node.example.com",
+		"port": "443",
+		"id":   "22222222-2222-2222-2222-222222222222",
+		"aid":  "0",
+		"scy":  "auto",
+		"net":  "tcp",
+		"type": "none",
+		"tls":  "tls",
+	}
+	infoJSON, _ := json.Marshal(info)
+	validJSON, _ := json.Marshal(valid)
+	nodes := parseURINodes("vmess://" + base64.StdEncoding.EncodeToString(infoJSON) + "\n" +
+		"vmess://" + base64.StdEncoding.EncodeToString(validJSON))
+	if len(nodes) != 1 {
+		t.Fatalf("expected only valid node, got %d", len(nodes))
+	}
+	if nodes[0].Name != "HK Node" {
+		t.Fatalf("unexpected node name: %q", nodes[0].Name)
+	}
+}
