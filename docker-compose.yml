@@ -16,10 +16,6 @@ services:
       XRAY_VMESS_AEAD_FORCED: "${XRAY_VMESS_AEAD_FORCED:-false}"
       XUI_ENABLE_FAIL2BAN: "${XUI_ENABLE_FAIL2BAN:-true}"
       XUI_PUBLIC_SUB_BASE_URL: "${XUI_PUBLIC_SUB_BASE_URL:-}"
-      XUI_UPSTREAM_RELAY_MODE: "${XUI_UPSTREAM_RELAY_MODE:-relay}"
-      XUI_RELAY_PUBLIC_HOST: "${XUI_RELAY_PUBLIC_HOST:-}"
-      XUI_RELAY_PORT_MIN: "${XUI_RELAY_PORT_MIN:-30000}"
-      XUI_RELAY_PORT_MAX: "${XUI_RELAY_PORT_MAX:-50000}"
     tty: true
     # Host network is required so panel ports and Xray inbound ports are
     # exposed directly on the VPS without extra port mapping.

@@ -48,7 +48,6 @@ type UpstreamNodeView struct {
 	Protocol     string `json:"protocol"`
 	Link         string `json:"link"`
 	SourceType   string `json:"sourceType"`
-	RelayPort    int    `json:"relayPort"`
 	Enable       bool   `json:"enable"`
 	Sort         int    `json:"sort"`
 	CreatedAt    int64  `json:"createdAt"`
@@ -83,11 +82,8 @@ type upstreamNodeContentRow struct {
 	ID             int
 	UpstreamSortID int
 	Sort           int
-	Name           string
-	Protocol       string
 	Link           string
 	Clash          string
-	RelayPort      int
 }
 
 type parsedUpstreamNode struct {
@@ -262,13 +258,6 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 				current.Link = parsed.Link
 				current.Clash = parsed.Clash
 				current.SourceType = parsed.SourceType
-				if current.RelayPort <= 0 && strings.ToLower(parsed.Protocol) == "vmess" && strings.TrimSpace(parsed.Link) != "" {
-					port, err := s.allocateRelayPort(tx, current.Id)
-					if err != nil {
-						return err
-					}
-					current.RelayPort = port
-				}
 				current.Sort = parsed.Sort
 				if err := tx.Save(&current).Error; err != nil {
 					return err
@@ -285,13 +274,6 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 				Hash:       hash,
 				Enable:     true,
 				Sort:       parsed.Sort,
-			}
-			if strings.ToLower(parsed.Protocol) == "vmess" && strings.TrimSpace(parsed.Link) != "" {
-				port, err := s.allocateRelayPort(tx, 0)
-				if err != nil {
-					return err
-				}
-				node.RelayPort = port
 			}
 			if err := tx.Create(&node).Error; err != nil {
 				return err
@@ -330,7 +312,7 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 func (s *SubscriptionMarketService) GetNodes(enabledOnly bool) ([]UpstreamNodeView, error) {
 	db := database.GetDB().
 		Table("upstream_nodes").
-		Select("upstream_nodes.id, upstream_nodes.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.source_type, upstream_nodes.relay_port, upstream_nodes.enable, upstream_nodes.sort, upstream_nodes.created_at, upstream_nodes.updated_at").
+		Select("upstream_nodes.id, upstream_nodes.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.source_type, upstream_nodes.enable, upstream_nodes.sort, upstream_nodes.created_at, upstream_nodes.updated_at").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc")
 	if enabledOnly {
@@ -473,12 +455,7 @@ func (s *SubscriptionMarketService) SetInboundNodes(inboundID int, nodeIDs []int
 	})
 }
 
-func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string, relayHost string) (*InboundSubscriptionContent, error) {
-	if SubscriptionRelayEnabled() {
-		if err := s.EnsureRelayPorts(); err != nil {
-			return nil, err
-		}
-	}
+func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) (*InboundSubscriptionContent, error) {
 	inboundIDs, err := s.inboundIDsBySubID(subID)
 	if err != nil {
 		return nil, err
@@ -489,7 +466,7 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string, 
 
 	var rows []upstreamNodeContentRow
 	err = database.GetDB().Table("inbound_subscription_nodes").
-		Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.clash, upstream_nodes.relay_port").
+		Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
 		Joins("JOIN upstream_nodes ON upstream_nodes.id = inbound_subscription_nodes.node_id").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Where("inbound_subscription_nodes.inbound_id IN ?", inboundIDs).
@@ -501,25 +478,13 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string, 
 	}
 
 	links, clashProxies := buildUpstreamNodeContent(rows)
-	if SubscriptionRelayEnabled() {
-		relayLinks, relayClashProxies := buildRelayedUpstreamNodeContent(rows, relayHost, func(nodeID int) string {
-			return relayInboundClientID(subID, nodeID)
-		})
-		links = relayLinks
-		clashProxies = relayClashProxies
-	}
 	return &InboundSubscriptionContent{
 		Links:      links,
 		ClashProxy: clashProxies,
 	}, nil
 }
 
-func (s *SubscriptionMarketService) GetCustomerSubscription(token string, relayHost string) (*CustomerSubscriptionContent, error) {
-	if SubscriptionRelayEnabled() {
-		if err := s.EnsureRelayPorts(); err != nil {
-			return nil, err
-		}
-	}
+func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*CustomerSubscriptionContent, error) {
 	token = strings.TrimSpace(token)
 	var customer model.CustomerSubscription
 	db := database.GetDB()
@@ -535,7 +500,7 @@ func (s *SubscriptionMarketService) GetCustomerSubscription(token string, relayH
 
 	var rows []upstreamNodeContentRow
 	err := db.Table("customer_subscription_nodes").
-		Select("upstream_nodes.id, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.clash, upstream_nodes.relay_port").
+		Select("upstream_nodes.link, upstream_nodes.clash").
 		Joins("JOIN upstream_nodes ON upstream_nodes.id = customer_subscription_nodes.node_id").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Where("customer_subscription_nodes.customer_id = ?", customer.Id).
@@ -547,13 +512,6 @@ func (s *SubscriptionMarketService) GetCustomerSubscription(token string, relayH
 	}
 
 	links, clashProxies := buildUpstreamNodeContent(rows)
-	if SubscriptionRelayEnabled() {
-		relayLinks, relayClashProxies := buildRelayedUpstreamNodeContent(rows, relayHost, func(nodeID int) string {
-			return relayCustomerClientID(customer.Token, nodeID)
-		})
-		links = relayLinks
-		clashProxies = relayClashProxies
-	}
 	if len(links) == 0 && len(clashProxies) == 0 {
 		return nil, ErrCustomerNoEnabledNodes
 	}

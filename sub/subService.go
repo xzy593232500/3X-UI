@@ -93,7 +93,7 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 		}
 	}
 
-	if upstreamContent, err := (&service.SubscriptionMarketService{}).GetInboundSubscriptionContent(subId, host); err == nil && upstreamContent != nil {
+	if upstreamContent, err := (&service.SubscriptionMarketService{}).GetInboundSubscriptionContent(subId); err == nil && upstreamContent != nil {
 		for _, link := range upstreamContent.Links {
 			if strings.TrimSpace(link) != "" {
 				result = append(result, link)
