@@ -81,6 +81,16 @@
           <a-button size="small" icon="minus-square" @click="customerModal.form.nodeIds = []">清空</a-button>
           <a-tag color="green">仅显示已启用的上游节点</a-tag>
         </a-space>
+        <div class="node-tag-tools" v-if="nodeQuickTags.length">
+          <span class="tag-tools-label">标签批量：</span>
+          <a-tag v-for="tag in nodeQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
+            [[ tag.label ]] [[ tag.nodeIds.length ]]
+            <a-divider type="vertical"></a-divider>
+            <a @click="applyNodeTag(customerModal.form, 'nodeIds', tag, true)">选择</a>
+            <a-divider type="vertical"></a-divider>
+            <a @click="applyNodeTag(customerModal.form, 'nodeIds', tag, false)">取消</a>
+          </a-tag>
+        </div>
         <div class="node-checkbox-group">
           <a-collapse :active-key="customerModal.activeGroupKeys"
             @change="keys => customerModal.activeGroupKeys = normalizeCollapseKeys(keys)" :bordered="false"
@@ -210,6 +220,9 @@
         }
         return Object.keys(map).map(key => map[key]);
       },
+      nodeQuickTags() {
+        return this.buildNodeQuickTags(this.nodes);
+      },
     },
     methods: {
       async loadAll() {
@@ -252,6 +265,59 @@
           this.customerModal.activeGroupKeys = [];
         }
         this.customerModal.visible = true;
+      },
+      buildNodeQuickTags(nodes) {
+        const source = Array.isArray(nodes) ? nodes : [];
+        const defs = [{
+          label: '香港',
+          words: ['香港', 'HK', 'Hong Kong', '🇭🇰']
+        }, {
+          label: '台湾',
+          words: ['台湾', 'TW', 'Taiwan', '🇹🇼']
+        }, {
+          label: '日本',
+          words: ['日本', 'JP', 'Japan', 'Tokyo', 'Osaka', '🇯🇵']
+        }, {
+          label: '新加坡',
+          words: ['新加坡', 'SG', 'Singapore', '狮城', '🇸🇬']
+        }, {
+          label: '美国',
+          words: ['美国', 'US', 'USA', 'United States', 'Los Angeles', 'LA', '🇺🇸']
+        }, {
+          label: '韩国',
+          words: ['韩国', 'KR', 'Korea', 'Seoul', '🇰🇷']
+        }, {
+          label: 'CN2',
+          words: ['CN2']
+        }, {
+          label: '直连',
+          words: ['直连', 'Direct']
+        }, {
+          label: 'IPLC',
+          words: ['IPLC']
+        }, {
+          label: 'IEPL',
+          words: ['IEPL']
+        }];
+        return defs.map(def => {
+          const nodeIds = source
+            .filter(node => def.words.some(word => String(node.name || '').toLowerCase().includes(String(word).toLowerCase())))
+            .map(node => node.id);
+          return Object.assign({}, def, {
+            nodeIds
+          });
+        }).filter(tag => tag.nodeIds.length > 0);
+      },
+      applyNodeTag(target, key, tag, checked) {
+        const selected = new Set(Array.isArray(target[key]) ? target[key] : []);
+        for (const id of tag.nodeIds || []) {
+          if (checked) {
+            selected.add(id);
+          } else {
+            selected.delete(id);
+          }
+        }
+        this.$set(target, key, Array.from(selected));
       },
       selectAllNodes() {
         this.customerModal.form.nodeIds = this.nodes.map(node => node.id);
@@ -399,6 +465,23 @@
     max-height: 390px;
     overflow: auto;
     padding-right: 6px;
+  }
+
+  .node-tag-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .tag-tools-label {
+    font-weight: 600;
+  }
+
+  .quick-node-tag {
+    margin-right: 0;
+    line-height: 24px;
   }
 
   .node-collapse {

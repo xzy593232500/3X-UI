@@ -16,7 +16,14 @@ services:
       XRAY_VMESS_AEAD_FORCED: "${XRAY_VMESS_AEAD_FORCED:-false}"
       XUI_ENABLE_FAIL2BAN: "${XUI_ENABLE_FAIL2BAN:-true}"
       XUI_PUBLIC_SUB_BASE_URL: "${XUI_PUBLIC_SUB_BASE_URL:-}"
+      XUI_HYSTERIA_CERT_FILE: "${XUI_HYSTERIA_CERT_FILE:-/root/cert/hysteria2/self.crt}"
+      XUI_HYSTERIA_KEY_FILE: "${XUI_HYSTERIA_KEY_FILE:-/root/cert/hysteria2/self.key}"
+      XUI_HYSTERIA_SERVER_NAME: "${XUI_HYSTERIA_SERVER_NAME:-}"
+      XUI_HYSTERIA_ALLOW_INSECURE: "${XUI_HYSTERIA_ALLOW_INSECURE:-true}"
     tty: true
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
     # Host network is required so panel ports and Xray inbound ports are
     # exposed directly on the VPS without extra port mapping.
     network_mode: host

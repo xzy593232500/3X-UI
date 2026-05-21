@@ -57,6 +57,7 @@ type UpstreamNodeView struct {
 	Link         string `json:"link"`
 	SourceType   string `json:"sourceType"`
 	Enable       bool   `json:"enable"`
+	Emergency    bool   `json:"emergency"`
 	Sort         int    `json:"sort"`
 	CreatedAt    int64  `json:"createdAt"`
 	UpdatedAt    int64  `json:"updatedAt"`
@@ -212,6 +213,57 @@ func (s *SubscriptionMarketService) SetNodeEnable(id int, enable bool) error {
 	return nil
 }
 
+func (s *SubscriptionMarketService) SetNodesEnable(nodeIDs []int, enable bool) error {
+	nodeIDs = uniquePositiveInts(nodeIDs)
+	if len(nodeIDs) == 0 {
+		return nil
+	}
+	return database.GetDB().
+		Model(&model.UpstreamNode{}).
+		Where("id IN ?", nodeIDs).
+		Update("enable", enable).Error
+}
+
+func (s *SubscriptionMarketService) GetUpstreamEmergencyNodeIDs(upstreamID int) ([]int, error) {
+	var count int64
+	if err := database.GetDB().Model(&model.UpstreamSubscription{}).Where("id = ?", upstreamID).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, ErrSubscriptionNotFound
+	}
+	var ids []int
+	err := database.GetDB().
+		Model(model.UpstreamNode{}).
+		Where("upstream_id = ? AND emergency = ?", upstreamID, true).
+		Order("sort asc, id asc").
+		Pluck("id", &ids).Error
+	return ids, err
+}
+
+func (s *SubscriptionMarketService) SetUpstreamEmergencyNodes(upstreamID int, nodeIDs []int) error {
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&model.UpstreamSubscription{}).Where("id = ?", upstreamID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrSubscriptionNotFound
+		}
+
+		if err := tx.Model(&model.UpstreamNode{}).Where("upstream_id = ?", upstreamID).Update("emergency", false).Error; err != nil {
+			return err
+		}
+		nodeIDs = uniquePositiveInts(nodeIDs)
+		if len(nodeIDs) == 0 {
+			return nil
+		}
+		return tx.Model(&model.UpstreamNode{}).
+			Where("upstream_id = ? AND id IN ?", upstreamID, nodeIDs).
+			Update("emergency", true).Error
+	})
+}
+
 func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscription, error) {
 	db := database.GetDB()
 	var upstream model.UpstreamSubscription
@@ -320,7 +372,7 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 func (s *SubscriptionMarketService) GetNodes(enabledOnly bool) ([]UpstreamNodeView, error) {
 	db := database.GetDB().
 		Table("upstream_nodes").
-		Select("upstream_nodes.id, upstream_nodes.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.source_type, upstream_nodes.enable, upstream_nodes.sort, upstream_nodes.created_at, upstream_nodes.updated_at").
+		Select("upstream_nodes.id, upstream_nodes.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.source_type, upstream_nodes.enable, upstream_nodes.emergency, upstream_nodes.sort, upstream_nodes.created_at, upstream_nodes.updated_at").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc")
 	if enabledOnly {
@@ -463,6 +515,20 @@ func (s *SubscriptionMarketService) SetInboundNodes(inboundID int, nodeIDs []int
 	})
 }
 
+func (s *SubscriptionMarketService) SetInboundEmergencyEnable(inboundID int, enable bool) error {
+	result := database.GetDB().
+		Model(&model.Inbound{}).
+		Where("id = ?", inboundID).
+		Update("emergency_enable", enable)
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return ErrInboundNotFound
+	}
+	return nil
+}
+
 func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) (*InboundSubscriptionContent, error) {
 	inboundIDs, err := s.inboundIDsBySubID(subID)
 	if err != nil {
@@ -483,6 +549,28 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) 
 		Scan(&rows).Error
 	if err != nil {
 		return nil, err
+	}
+
+	var emergencyEnabled int64
+	if err := database.GetDB().
+		Model(&model.Inbound{}).
+		Where("id IN ? AND emergency_enable = ?", inboundIDs, true).
+		Count(&emergencyEnabled).Error; err != nil {
+		return nil, err
+	}
+	if emergencyEnabled > 0 {
+		var emergencyRows []upstreamNodeContentRow
+		err = database.GetDB().Table("upstream_nodes").
+			Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
+			Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
+			Where("upstream_nodes.emergency = ?", true).
+			Where("upstream_nodes.enable = ? AND upstream_subscriptions.enable = ?", true, true).
+			Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc").
+			Scan(&emergencyRows).Error
+		if err != nil {
+			return nil, err
+		}
+		rows = append(rows, emergencyRows...)
 	}
 
 	links, clashProxies := buildUpstreamNodeContent(rows)
@@ -508,7 +596,7 @@ func (s *SubscriptionMarketService) GetCustomerSubscription(token string) (*Cust
 
 	var rows []upstreamNodeContentRow
 	err := db.Table("customer_subscription_nodes").
-		Select("upstream_nodes.link, upstream_nodes.clash").
+		Select("upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
 		Joins("JOIN upstream_nodes ON upstream_nodes.id = customer_subscription_nodes.node_id").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Where("customer_subscription_nodes.customer_id = ?", customer.Id).
@@ -682,9 +770,22 @@ func (s *SubscriptionMarketService) inboundIDsBySubID(subID string) ([]int, erro
 func buildUpstreamNodeContent(rows []upstreamNodeContentRow) ([]string, []map[string]any) {
 	links := make([]string, 0, len(rows))
 	clashProxies := make([]map[string]any, 0)
+	seenIDs := make(map[int]bool, len(rows))
+	seenLinks := make(map[string]bool, len(rows))
 	for _, row := range rows {
-		if strings.TrimSpace(row.Link) != "" {
-			links = append(links, row.Link)
+		if row.ID > 0 {
+			if seenIDs[row.ID] {
+				continue
+			}
+			seenIDs[row.ID] = true
+		}
+		link := strings.TrimSpace(row.Link)
+		if link != "" {
+			if seenLinks[link] {
+				continue
+			}
+			seenLinks[link] = true
+			links = append(links, link)
 		}
 		if strings.TrimSpace(row.Clash) != "" {
 			var proxy map[string]any

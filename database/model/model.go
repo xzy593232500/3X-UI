@@ -55,6 +55,7 @@ type Inbound struct {
 	Enable               bool                 `json:"enable" form:"enable" gorm:"index:idx_enable_traffic_reset,priority:1"`                           // Whether the inbound is enabled
 	ExpiryTime           int64                `json:"expiryTime" form:"expiryTime"`                                                                    // Expiration timestamp
 	DeviceLimit          int                  `json:"deviceLimit" form:"deviceLimit" gorm:"column:device_limit;default:0"`                             // Maximum active client IPs per inbound; 0 means unlimited
+	EmergencyEnable      bool                 `json:"emergencyEnable" form:"emergencyEnable" gorm:"column:emergency_enable;default:false"`             // Whether emergency upstream nodes are appended to subscriptions
 	TrafficReset         string               `json:"trafficReset" form:"trafficReset" gorm:"default:never;index:idx_enable_traffic_reset,priority:2"` // Traffic reset schedule
 	LastTrafficResetTime int64                `json:"lastTrafficResetTime" form:"lastTrafficResetTime" gorm:"default:0"`                               // Last traffic reset timestamp
 	SocksProxyEnabled    bool                 `json:"socksProxyEnabled" form:"socksProxyEnabled" gorm:"column:socks_proxy_enabled;default:false"`      // Route this inbound through a dedicated SOCKS5 outbound
@@ -164,6 +165,7 @@ type UpstreamNode struct {
 	SourceType string `json:"sourceType" form:"sourceType" gorm:"default:uri;column:source_type"`
 	Hash       string `json:"hash" form:"hash" gorm:"uniqueIndex:idx_upstream_node_hash"`
 	Enable     bool   `json:"enable" form:"enable" gorm:"default:true"`
+	Emergency  bool   `json:"emergency" form:"emergency" gorm:"default:false"`
 	Sort       int    `json:"sort" form:"sort" gorm:"default:0"`
 	CreatedAt  int64  `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
 	UpdatedAt  int64  `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`

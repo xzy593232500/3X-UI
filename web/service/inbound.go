@@ -5,6 +5,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -37,6 +38,36 @@ const (
 	hysteriaDefaultCertFile = "/root/cert/hysteria2/self.crt"
 	hysteriaDefaultKeyFile  = "/root/cert/hysteria2/self.key"
 )
+
+func hysteriaDefaultTLSCertFile() string {
+	if value := strings.TrimSpace(os.Getenv("XUI_HYSTERIA_CERT_FILE")); value != "" {
+		return value
+	}
+	return hysteriaDefaultCertFile
+}
+
+func hysteriaDefaultTLSKeyFile() string {
+	if value := strings.TrimSpace(os.Getenv("XUI_HYSTERIA_KEY_FILE")); value != "" {
+		return value
+	}
+	return hysteriaDefaultKeyFile
+}
+
+func hysteriaDefaultTLSServerName() string {
+	return strings.TrimSpace(os.Getenv("XUI_HYSTERIA_SERVER_NAME"))
+}
+
+func hysteriaDefaultTLSAllowInsecure() bool {
+	value := strings.TrimSpace(os.Getenv("XUI_HYSTERIA_ALLOW_INSECURE"))
+	if value == "" {
+		return true
+	}
+	allowInsecure, err := strconv.ParseBool(value)
+	if err != nil {
+		return true
+	}
+	return allowInsecure
+}
 
 // GetInbounds retrieves all inbounds for a specific user.
 // Returns a slice of inbound models with their associated client statistics.
@@ -182,8 +213,16 @@ func (s *InboundService) normalizeInboundBeforeSave(inbound *model.Inbound) erro
 	if tlsSettings == nil {
 		tlsSettings = map[string]any{}
 	}
+	defaultCertFile := hysteriaDefaultTLSCertFile()
+	defaultKeyFile := hysteriaDefaultTLSKeyFile()
+	defaultServerName := hysteriaDefaultTLSServerName()
+	defaultAllowInsecure := hysteriaDefaultTLSAllowInsecure()
 	if serverName, _ := tlsSettings["serverName"].(string); strings.TrimSpace(serverName) == "" {
-		delete(tlsSettings, "serverName")
+		if defaultServerName != "" {
+			tlsSettings["serverName"] = defaultServerName
+		} else {
+			delete(tlsSettings, "serverName")
+		}
 	}
 	tlsSettings["alpn"] = []any{"h3"}
 
@@ -191,8 +230,8 @@ func (s *InboundService) normalizeInboundBeforeSave(inbound *model.Inbound) erro
 	if !hasUsableTLSCertificate(certificates) {
 		tlsSettings["certificates"] = []any{
 			map[string]any{
-				"certificateFile": hysteriaDefaultCertFile,
-				"keyFile":         hysteriaDefaultKeyFile,
+				"certificateFile": defaultCertFile,
+				"keyFile":         defaultKeyFile,
 				"oneTimeLoading":  false,
 				"usage":           "encipherment",
 				"buildChain":      false,
@@ -210,7 +249,11 @@ func (s *InboundService) normalizeInboundBeforeSave(inbound *model.Inbound) erro
 	if _, ok := tlsClientSettings["echConfigList"]; !ok {
 		tlsClientSettings["echConfigList"] = ""
 	}
-	tlsClientSettings["allowInsecure"] = true
+	if usesManagedHysteriaCert(tlsSettings["certificates"], defaultCertFile, defaultKeyFile) {
+		tlsClientSettings["allowInsecure"] = defaultAllowInsecure
+	} else if _, ok := tlsClientSettings["allowInsecure"]; !ok {
+		tlsClientSettings["allowInsecure"] = defaultAllowInsecure
+	}
 	tlsSettings["settings"] = tlsClientSettings
 	stream["tlsSettings"] = tlsSettings
 
@@ -247,6 +290,27 @@ func hasUsableTLSCertificate(certificates []any) bool {
 		certBytes, certOK := cert["certificate"].([]any)
 		keyBytes, keyOK := cert["key"].([]any)
 		if certOK && keyOK && len(certBytes) > 0 && len(keyBytes) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func usesManagedHysteriaCert(certificates any, certFile string, keyFile string) bool {
+	certs, ok := certificates.([]any)
+	if !ok {
+		return false
+	}
+	certFile = strings.TrimSpace(certFile)
+	keyFile = strings.TrimSpace(keyFile)
+	for _, item := range certs {
+		cert, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		currentCertFile, _ := cert["certificateFile"].(string)
+		currentKeyFile, _ := cert["keyFile"].(string)
+		if strings.TrimSpace(currentCertFile) == certFile && strings.TrimSpace(currentKeyFile) == keyFile {
 			return true
 		}
 	}
@@ -732,6 +796,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound.Enable = inbound.Enable
 	oldInbound.ExpiryTime = inbound.ExpiryTime
 	oldInbound.DeviceLimit = inbound.DeviceLimit
+	oldInbound.EmergencyEnable = inbound.EmergencyEnable
 	oldInbound.TrafficReset = inbound.TrafficReset
 	oldInbound.SocksProxyEnabled = inbound.SocksProxyEnabled
 	oldInbound.SocksProxyHost = inbound.SocksProxyHost

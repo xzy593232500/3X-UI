@@ -11,6 +11,7 @@ class DBInbound {
         this.enable = true;
         this.expiryTime = 0;
         this.deviceLimit = 0;
+        this.emergencyEnable = false;
         this.trafficReset = "never";
         this.lastTrafficResetTime = 0;
         this.socksProxyEnabled = false;
@@ -33,6 +34,8 @@ class DBInbound {
         ObjectUtil.cloneProps(this, data);
         this.socksProxyEnabled = this.socksProxyEnabled === true || this.socksProxyEnabled === 1 ||
             this.socksProxyEnabled === "1" || this.socksProxyEnabled === "true" || this.socksProxyEnabled === "on";
+        this.emergencyEnable = this.emergencyEnable === true || this.emergencyEnable === 1 ||
+            this.emergencyEnable === "1" || this.emergencyEnable === "true" || this.emergencyEnable === "on";
         this.socksProxyHost = this.socksProxyHost || "";
         this.socksProxyPort = Number(this.socksProxyPort) || 0;
         this.socksProxyUsername = this.socksProxyUsername || "";

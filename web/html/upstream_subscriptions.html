@@ -69,6 +69,7 @@
             <template slot="action" slot-scope="text, record">
               <a-space>
                 <a-button size="small" icon="cluster" @click="openNodeModal(record)">节点</a-button>
+                <a-button size="small" icon="thunderbolt" @click="openEmergencyModal(record)">应急节点</a-button>
                 <a-button size="small" icon="sync" :loading="syncingId === record.id"
                   @click="syncUpstream(record)"></a-button>
                 <a-button size="small" icon="edit" @click="openUpstreamModal(record)"></a-button>
@@ -100,6 +101,16 @@
     :class="themeSwitcher.currentTheme" width="980px">
     <a-alert type="info" show-icon message="关闭的节点不会出现在客户添加页，也不会输出到客户订阅或入站订阅。"
       class="mb-10"></a-alert>
+    <div class="node-tag-tools" v-if="nodeQuickTags.length">
+      <span class="tag-tools-label">标签批量：</span>
+      <a-tag v-for="tag in nodeQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
+        [[ tag.label ]] [[ tag.nodeIds.length ]]
+        <a-divider type="vertical"></a-divider>
+        <a @click="batchToggleNodesByTag(tag, true)">启用</a>
+        <a-divider type="vertical"></a-divider>
+        <a @click="batchToggleNodesByTag(tag, false)">关闭</a>
+      </a-tag>
+    </div>
     <a-table row-key="id" :columns="nodeColumns" :data-source="nodeModal.nodes" :pagination="false" size="middle"
       :scroll="{ x: 900, y: 520 }">
       <template slot="enable" slot-scope="text, record">
@@ -108,6 +119,10 @@
       <template slot="sourceType" slot-scope="text, record">
         <a-tag :color="record.sourceType === 'clash' ? 'purple' : 'green'">[[ record.sourceType ]]</a-tag>
       </template>
+      <template slot="emergency" slot-scope="text, record">
+        <a-tag v-if="record.emergency" color="red">应急</a-tag>
+        <span v-else>-</span>
+      </template>
       <template slot="copyLink" slot-scope="text, record">
         <a-tooltip :title="record.link || record.clash || '暂无可复制内容'">
           <a-button size="small" icon="copy" :disabled="!record.link && !record.clash"
@@ -115,6 +130,34 @@
         </a-tooltip>
       </template>
     </a-table>
+  </a-modal>
+
+  <a-modal v-model="emergencyModal.visible" :title="'应急节点 - ' + emergencyModal.upstreamName"
+    :confirm-loading="emergencyModal.saving" :class="themeSwitcher.currentTheme" width="900px"
+    @ok="submitEmergencyNodes">
+    <a-alert type="info" show-icon message="选中的节点会作为应急节点；入站列表里打开应急启用后，客户更新订阅会临时获取这些节点。"
+      class="mb-10"></a-alert>
+    <div class="node-tag-tools" v-if="emergencyQuickTags.length">
+      <span class="tag-tools-label">标签批量：</span>
+      <a-tag v-for="tag in emergencyQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
+        [[ tag.label ]] [[ tag.nodeIds.length ]]
+        <a-divider type="vertical"></a-divider>
+        <a @click="applyEmergencyTag(tag, true)">选择</a>
+        <a-divider type="vertical"></a-divider>
+        <a @click="applyEmergencyTag(tag, false)">取消</a>
+      </a-tag>
+    </div>
+    <div class="node-checkbox-group">
+      <a-row :gutter="[8,8]">
+        <a-col v-for="node in emergencyModal.nodes" :key="node.id" :span="isMobile ? 24 : 12">
+          <a-checkbox :checked="isEmergencyNodeSelected(node.id)"
+            @change="event => setEmergencyNodeSelected(node.id, event.target.checked)">
+            <span class="node-name">[[ node.name ]]</span>
+            <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+          </a-checkbox>
+        </a-col>
+      </a-row>
+    </div>
   </a-modal>
 </a-layout>
 
@@ -174,7 +217,7 @@
       scopedSlots: {
         customRender: 'action'
       },
-      width: 230,
+      width: 330,
       fixed: 'right'
     },
   ];
@@ -203,6 +246,13 @@
         customRender: 'enable'
       },
       width: 90
+    },
+    {
+      title: '应急',
+      scopedSlots: {
+        customRender: 'emergency'
+      },
+      width: 80
     },
     {
       title: '复制',
@@ -240,6 +290,22 @@
         upstreamName: '',
         nodes: [],
       },
+      emergencyModal: {
+        visible: false,
+        saving: false,
+        upstreamId: null,
+        upstreamName: '',
+        nodes: [],
+        nodeIds: [],
+      },
+    },
+    computed: {
+      nodeQuickTags() {
+        return this.buildNodeQuickTags(this.nodeModal.nodes);
+      },
+      emergencyQuickTags() {
+        return this.buildNodeQuickTags(this.emergencyModal.nodes);
+      },
     },
     methods: {
       async loadAll() {
@@ -251,6 +317,11 @@
             if (this.nodeModal.visible) {
               const current = this.upstreams.find(item => item.id === this.nodeModal.upstreamId);
               this.nodeModal.nodes = current && Array.isArray(current.nodes) ? current.nodes : [];
+            }
+            if (this.emergencyModal.visible) {
+              const current = this.upstreams.find(item => item.id === this.emergencyModal.upstreamId);
+              this.emergencyModal.nodes = current && Array.isArray(current.nodes) ? current.nodes : [];
+              this.emergencyModal.nodeIds = this.emergencyModal.nodes.filter(node => node.emergency).map(node => node.id);
             }
           }
         } finally {
@@ -280,6 +351,112 @@
         this.nodeModal.upstreamName = record.name;
         this.nodeModal.nodes = Array.isArray(record.nodes) ? record.nodes : [];
         this.nodeModal.visible = true;
+      },
+      buildNodeQuickTags(nodes) {
+        const source = Array.isArray(nodes) ? nodes : [];
+        const defs = [{
+          label: '香港',
+          words: ['香港', 'HK', 'Hong Kong', '🇭🇰']
+        }, {
+          label: '台湾',
+          words: ['台湾', 'TW', 'Taiwan', '🇹🇼']
+        }, {
+          label: '日本',
+          words: ['日本', 'JP', 'Japan', 'Tokyo', 'Osaka', '🇯🇵']
+        }, {
+          label: '新加坡',
+          words: ['新加坡', 'SG', 'Singapore', '狮城', '🇸🇬']
+        }, {
+          label: '美国',
+          words: ['美国', 'US', 'USA', 'United States', 'Los Angeles', 'LA', '🇺🇸']
+        }, {
+          label: '韩国',
+          words: ['韩国', 'KR', 'Korea', 'Seoul', '🇰🇷']
+        }, {
+          label: 'CN2',
+          words: ['CN2']
+        }, {
+          label: '直连',
+          words: ['直连', 'Direct']
+        }, {
+          label: 'IPLC',
+          words: ['IPLC']
+        }, {
+          label: 'IEPL',
+          words: ['IEPL']
+        }];
+        return defs.map(def => {
+          const nodeIds = source
+            .filter(node => def.words.some(word => String(node.name || '').toLowerCase().includes(String(word).toLowerCase())))
+            .map(node => node.id);
+          return Object.assign({}, def, {
+            nodeIds
+          });
+        }).filter(tag => tag.nodeIds.length > 0);
+      },
+      async batchToggleNodesByTag(tag, enable) {
+        if (!tag || !tag.nodeIds || tag.nodeIds.length === 0) return;
+        const msg = await HttpUtil.post('/panel/api/subscription-market/nodes/batch-toggle', {
+          nodeIds: tag.nodeIds,
+          enable
+        });
+        if (msg.success) {
+          for (const node of this.nodeModal.nodes) {
+            if (tag.nodeIds.includes(node.id)) {
+              node.enable = enable;
+            }
+          }
+          await this.loadAll();
+        }
+      },
+      async openEmergencyModal(record) {
+        this.emergencyModal.upstreamId = record.id;
+        this.emergencyModal.upstreamName = record.name;
+        this.emergencyModal.nodes = Array.isArray(record.nodes) ? record.nodes : [];
+        this.emergencyModal.nodeIds = this.emergencyModal.nodes.filter(node => node.emergency).map(node => node.id);
+        this.emergencyModal.visible = true;
+        const msg = await HttpUtil.get(`/panel/api/subscription-market/upstreams/${record.id}/emergency-nodes`);
+        if (msg.success && Array.isArray(msg.obj)) {
+          this.emergencyModal.nodeIds = msg.obj.slice();
+        }
+      },
+      isEmergencyNodeSelected(nodeId) {
+        return this.emergencyModal.nodeIds.includes(nodeId);
+      },
+      setEmergencyNodeSelected(nodeId, checked) {
+        const selected = new Set(this.emergencyModal.nodeIds);
+        if (checked) {
+          selected.add(nodeId);
+        } else {
+          selected.delete(nodeId);
+        }
+        this.emergencyModal.nodeIds = Array.from(selected);
+      },
+      applyEmergencyTag(tag, checked) {
+        const selected = new Set(this.emergencyModal.nodeIds);
+        for (const id of tag.nodeIds || []) {
+          if (checked) {
+            selected.add(id);
+          } else {
+            selected.delete(id);
+          }
+        }
+        this.emergencyModal.nodeIds = Array.from(selected);
+      },
+      async submitEmergencyNodes() {
+        if (!this.emergencyModal.upstreamId) return;
+        this.emergencyModal.saving = true;
+        try {
+          const msg = await HttpUtil.post(`/panel/api/subscription-market/upstreams/${this.emergencyModal.upstreamId}/emergency-nodes`, {
+            nodeIds: this.emergencyModal.nodeIds
+          });
+          if (msg.success) {
+            this.emergencyModal.visible = false;
+            await this.loadAll();
+          }
+        } finally {
+          this.emergencyModal.saving = false;
+        }
       },
       async submitUpstream() {
         const form = this.upstreamModal.form;
@@ -404,6 +581,39 @@
     max-width: 120px;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  .node-tag-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .tag-tools-label {
+    font-weight: 600;
+  }
+
+  .quick-node-tag {
+    margin-right: 0;
+    line-height: 24px;
+  }
+
+  .node-checkbox-group {
+    width: 100%;
+    max-height: 430px;
+    overflow: auto;
+    padding-right: 6px;
+  }
+
+  .node-name {
+    display: inline-block;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: bottom;
   }
 </style>
 {{ template "page/body_end" .}}

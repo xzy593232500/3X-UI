@@ -3,11 +3,13 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"os"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 
+	"github.com/mhsanaei/3x-ui/v2/config"
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	"github.com/mhsanaei/3x-ui/v2/xray"
@@ -112,6 +114,7 @@ func (s *XrayService) GetXrayConfig() (*xray.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	ensureAccessLogForDeviceLimits(xrayConfig, inbounds)
 	for _, inbound := range inbounds {
 		if !inbound.Enable {
 			continue
@@ -306,6 +309,60 @@ func isAPIRoutingRule(rule any) bool {
 		return false
 	}
 	return ruleMap["outboundTag"] == "api"
+}
+
+func ensureAccessLogForDeviceLimits(xrayConfig *xray.Config, inbounds []*model.Inbound) {
+	if xrayConfig == nil || !hasAnyDeviceLimit(inbounds) {
+		return
+	}
+
+	logConfig := map[string]any{}
+	if len(xrayConfig.LogConfig) > 0 && strings.TrimSpace(string(xrayConfig.LogConfig)) != "null" {
+		_ = json.Unmarshal(xrayConfig.LogConfig, &logConfig)
+	}
+	access, _ := logConfig["access"].(string)
+	if strings.TrimSpace(access) != "" && strings.TrimSpace(access) != "none" {
+		return
+	}
+
+	logFolder := config.GetLogFolder()
+	if err := os.MkdirAll(logFolder, 0o755); err != nil {
+		logger.Warningf("[DEVICE_LIMIT] Failed to create log folder %s: %v", logFolder, err)
+	}
+	logConfig["access"] = logFolder + "/access.log"
+	if _, ok := logConfig["error"]; !ok {
+		logConfig["error"] = ""
+	}
+	if _, ok := logConfig["loglevel"]; !ok {
+		logConfig["loglevel"] = "warning"
+	}
+	updated, err := json.MarshalIndent(logConfig, "", "  ")
+	if err != nil {
+		logger.Warningf("[DEVICE_LIMIT] Failed to update access log config: %v", err)
+		return
+	}
+	xrayConfig.LogConfig = updated
+}
+
+func hasAnyDeviceLimit(inbounds []*model.Inbound) bool {
+	for _, inbound := range inbounds {
+		if inbound == nil || !inbound.Enable {
+			continue
+		}
+		if inbound.DeviceLimit > 0 {
+			return true
+		}
+		var settings map[string][]model.Client
+		if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+			continue
+		}
+		for _, client := range settings["clients"] {
+			if client.LimitIP > 0 {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // GetXrayTraffic fetches the current traffic statistics from the running Xray process.

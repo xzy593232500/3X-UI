@@ -441,6 +441,10 @@
                       <a-switch v-model="dbInbound.enable"
                         @change="switchEnable(dbInbound.id,dbInbound.enable)"></a-switch>
                     </template>
+                    <template slot="emergencyEnable" slot-scope="text, dbInbound">
+                      <a-switch v-model="dbInbound.emergencyEnable"
+                        @change="checked => toggleInboundEmergency(dbInbound, checked)"></a-switch>
+                    </template>
                     <template slot="expiryTime" slot-scope="text, dbInbound">
                       <a-popover v-if="dbInbound.expiryTime > 0" :overlay-class-name="themeSwitcher.currentTheme">
                         <template slot="content">
@@ -459,6 +463,8 @@
                             fill="currentColor"></path>
                         </svg>
                       </a-tag>
+                      <a-button size="small" icon="plus-circle" class="ml-5"
+                        @click="openExtendExpiryModal(dbInbound)">增加时长</a-button>
                     </template>
                     <template slot="info" slot-scope="text, dbInbound">
                       <a-popover placement="bottomRight" :overlay-class-name="themeSwitcher.currentTheme"
@@ -699,6 +705,16 @@
         <a-button size="small" icon="minus-square" @click="inboundUpstreamModal.nodeIds = []">清空</a-button>
         <a-tag color="green">仅显示已启用的上游节点</a-tag>
       </a-space>
+      <div class="node-tag-tools" v-if="upstreamQuickTags.length">
+        <span class="tag-tools-label">标签批量：</span>
+        <a-tag v-for="tag in upstreamQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
+          [[ tag.label ]] [[ tag.nodeIds.length ]]
+          <a-divider type="vertical"></a-divider>
+          <a @click="applyNodeTag(inboundUpstreamModal, 'nodeIds', tag, true)">选择</a>
+          <a-divider type="vertical"></a-divider>
+          <a @click="applyNodeTag(inboundUpstreamModal, 'nodeIds', tag, false)">取消</a>
+        </a-tag>
+      </div>
       <div class="node-checkbox-group">
         <a-collapse :active-key="inboundUpstreamModal.activeGroupKeys"
           @change="keys => inboundUpstreamModal.activeGroupKeys = normalizeCollapseKeys(keys)" :bordered="false"
@@ -729,6 +745,32 @@
         <a-empty v-if="groupedUpstreamNodes.length === 0" description="暂无可用上游节点"></a-empty>
       </div>
     </a-spin>
+  </a-modal>
+
+  <a-modal v-model="extendExpiryModal.visible" :title="'增加时长 - ' + extendExpiryModal.inboundRemark"
+    :confirm-loading="extendExpiryModal.saving" :class="themeSwitcher.currentTheme" width="560px"
+    @ok="submitExtendExpiry">
+    <a-form layout="vertical">
+      <a-form-item label="增加方式">
+        <a-radio-group v-model="extendExpiryModal.baseMode">
+          <a-radio-button value="current">以当前过期时间为基础</a-radio-button>
+          <a-radio-button value="now">以现在真实时间为基础</a-radio-button>
+        </a-radio-group>
+      </a-form-item>
+      <a-form-item label="增加时长">
+        <a-radio-group v-model="extendExpiryModal.durationPreset">
+          <a-radio-button value="1m">一个月</a-radio-button>
+          <a-radio-button value="3m">三个月</a-radio-button>
+          <a-radio-button value="6m">半年</a-radio-button>
+          <a-radio-button value="1y">一年</a-radio-button>
+          <a-radio-button value="custom">自由时长</a-radio-button>
+        </a-radio-group>
+      </a-form-item>
+      <a-form-item v-if="extendExpiryModal.durationPreset === 'custom'" label="自由时长（天）">
+        <a-input-number v-model="extendExpiryModal.customDays" :min="1" :max="3650" class="w-100"></a-input-number>
+      </a-form-item>
+      <a-alert type="info" show-icon :message="'新的到期时间：' + previewExtendedExpiry"></a-alert>
+    </a-form>
   </a-modal>
 </a-layout>
 {{template "page/body_scripts" .}}
@@ -1005,6 +1047,13 @@
       customRender: 'enable'
     },
   }, {
+    title: '应急启用',
+    align: 'center',
+    width: 45,
+    scopedSlots: {
+      customRender: 'emergencyEnable'
+    },
+  }, {
     title: '{{ i18n "pages.inbounds.remark" }}',
     align: 'center',
     width: 60,
@@ -1200,6 +1249,15 @@
         nodeIds: [],
         activeGroupKeys: [],
       },
+      extendExpiryModal: {
+        visible: false,
+        saving: false,
+        inboundId: null,
+        inboundRemark: '',
+        baseMode: 'current',
+        durationPreset: '1m',
+        customDays: 30,
+      },
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
       refreshing: false,
       refreshInterval: Number(localStorage.getItem("refreshInterval")) || 5000,
@@ -1392,6 +1450,59 @@
         if (Array.isArray(keys)) return keys;
         if (keys === undefined || keys === null || keys === '') return [];
         return [String(keys)];
+      },
+      buildNodeQuickTags(nodes) {
+        const source = Array.isArray(nodes) ? nodes : [];
+        const defs = [{
+          label: '香港',
+          words: ['香港', 'HK', 'Hong Kong', '🇭🇰']
+        }, {
+          label: '台湾',
+          words: ['台湾', 'TW', 'Taiwan', '🇹🇼']
+        }, {
+          label: '日本',
+          words: ['日本', 'JP', 'Japan', 'Tokyo', 'Osaka', '🇯🇵']
+        }, {
+          label: '新加坡',
+          words: ['新加坡', 'SG', 'Singapore', '狮城', '🇸🇬']
+        }, {
+          label: '美国',
+          words: ['美国', 'US', 'USA', 'United States', 'Los Angeles', 'LA', '🇺🇸']
+        }, {
+          label: '韩国',
+          words: ['韩国', 'KR', 'Korea', 'Seoul', '🇰🇷']
+        }, {
+          label: 'CN2',
+          words: ['CN2']
+        }, {
+          label: '直连',
+          words: ['直连', 'Direct']
+        }, {
+          label: 'IPLC',
+          words: ['IPLC']
+        }, {
+          label: 'IEPL',
+          words: ['IEPL']
+        }];
+        return defs.map(def => {
+          const nodeIds = source
+            .filter(node => def.words.some(word => String(node.name || '').toLowerCase().includes(String(word).toLowerCase())))
+            .map(node => node.id);
+          return Object.assign({}, def, {
+            nodeIds
+          });
+        }).filter(tag => tag.nodeIds.length > 0);
+      },
+      applyNodeTag(target, key, tag, checked) {
+        const selected = new Set(Array.isArray(target[key]) ? target[key] : []);
+        for (const id of tag.nodeIds || []) {
+          if (checked) {
+            selected.add(id);
+          } else {
+            selected.delete(id);
+          }
+        }
+        this.$set(target, key, Array.from(selected));
       },
       setInbounds(dbInbounds) {
         this.inbounds.splice(0);
@@ -1663,6 +1774,7 @@
           enable: dbInbound.enable,
           expiryTime: dbInbound.expiryTime,
           deviceLimit: dbInbound.deviceLimit,
+          emergencyEnable: dbInbound.emergencyEnable,
           trafficReset: dbInbound.trafficReset,
           lastTrafficResetTime: dbInbound.lastTrafficResetTime,
           socksProxyEnabled: dbInbound.socksProxyEnabled,
@@ -1720,6 +1832,7 @@
           enable: dbInbound.enable,
           expiryTime: dbInbound.expiryTime,
           deviceLimit: dbInbound.deviceLimit,
+          emergencyEnable: dbInbound.emergencyEnable,
           trafficReset: dbInbound.trafficReset,
           lastTrafficResetTime: dbInbound.lastTrafficResetTime,
           socksProxyEnabled: dbInbound.socksProxyEnabled,
@@ -1756,6 +1869,7 @@
           enable: dbInbound.enable,
           expiryTime: dbInbound.expiryTime,
           deviceLimit: dbInbound.deviceLimit,
+          emergencyEnable: dbInbound.emergencyEnable,
           trafficReset: dbInbound.trafficReset,
           lastTrafficResetTime: dbInbound.lastTrafficResetTime,
           socksProxyEnabled: dbInbound.socksProxyEnabled,
@@ -1988,8 +2102,15 @@
           remark: dbInbound.remark,
           enable: dbInbound.enable,
           expiryTime: dbInbound.expiryTime,
+          deviceLimit: dbInbound.deviceLimit,
+          emergencyEnable: dbInbound.emergencyEnable,
           trafficReset: dbInbound.trafficReset,
           lastTrafficResetTime: dbInbound.lastTrafficResetTime,
+          socksProxyEnabled: dbInbound.socksProxyEnabled,
+          socksProxyHost: dbInbound.socksProxyHost,
+          socksProxyPort: dbInbound.socksProxyPort,
+          socksProxyUsername: dbInbound.socksProxyUsername,
+          socksProxyPassword: dbInbound.socksProxyPassword,
 
           listen: inbound.listen,
           port: inbound.port,
@@ -2009,6 +2130,64 @@
         Object.keys(data).forEach(key => formData.append(key, data[key]));
 
         this.submit(`/panel/api/inbounds/update/${dbInboundId}`, formData);
+      },
+      async toggleInboundEmergency(dbInbound, checked) {
+        const previous = !checked;
+        dbInbound.emergencyEnable = checked;
+        const msg = await HttpUtil.post(`/panel/api/subscription-market/inbounds/${dbInbound.id}/emergency`, {
+          enable: checked
+        });
+        if (!msg.success) {
+          dbInbound.emergencyEnable = previous;
+        }
+      },
+      openExtendExpiryModal(dbInbound) {
+        if (!dbInbound) return;
+        this.extendExpiryModal.inboundId = dbInbound.id;
+        this.extendExpiryModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
+        this.extendExpiryModal.baseMode = dbInbound.expiryTime > 0 ? 'current' : 'now';
+        this.extendExpiryModal.durationPreset = '1m';
+        this.extendExpiryModal.customDays = 30;
+        this.extendExpiryModal.visible = true;
+      },
+      calculateExtendedExpiry() {
+        const modal = this.extendExpiryModal;
+        const dbInbound = this.dbInbounds.find(row => row.id === modal.inboundId);
+        if (!dbInbound) return 0;
+        const now = Date.now();
+        let base = modal.baseMode === 'current' && dbInbound.expiryTime > 0 ? Number(dbInbound.expiryTime) : now;
+        let result = moment(base);
+        switch (modal.durationPreset) {
+          case '1m':
+            result = result.add(1, 'month');
+            break;
+          case '3m':
+            result = result.add(3, 'month');
+            break;
+          case '6m':
+            result = result.add(6, 'month');
+            break;
+          case '1y':
+            result = result.add(1, 'year');
+            break;
+          case 'custom':
+            result = result.add(Number(modal.customDays || 1), 'day');
+            break;
+        }
+        return result.valueOf();
+      },
+      async submitExtendExpiry() {
+        const dbInbound = this.dbInbounds.find(row => row.id === this.extendExpiryModal.inboundId);
+        if (!dbInbound) return;
+        this.extendExpiryModal.saving = true;
+        try {
+          const inbound = dbInbound.toInbound();
+          dbInbound.expiryTime = this.calculateExtendedExpiry();
+          await this.updateInbound(inbound, dbInbound);
+          this.extendExpiryModal.visible = false;
+        } finally {
+          this.extendExpiryModal.saving = false;
+        }
       },
       async switchEnableClient(dbInboundId, client, state) {
         this.loading();
@@ -2523,6 +2702,13 @@
           map[upstreamId].nodes.push(node);
         }
         return Object.keys(map).map(key => map[key]);
+      },
+      upstreamQuickTags() {
+        return this.buildNodeQuickTags(this.upstreamNodes);
+      },
+      previewExtendedExpiry() {
+        const value = this.calculateExtendedExpiry();
+        return value > 0 ? IntlUtil.formatDate(value) : '-';
       }
     },
   });
@@ -2585,6 +2771,23 @@
     max-height: 390px;
     overflow: auto;
     padding-right: 6px;
+  }
+
+  .node-tag-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+
+  .tag-tools-label {
+    font-weight: 600;
+  }
+
+  .quick-node-tag {
+    margin-right: 0;
+    line-height: 24px;
   }
 
   .node-collapse {

@@ -1655,11 +1655,12 @@ class Inbound extends XrayCommonClass {
             this.stream.tls.certs = [
                 new TlsStreamSettings.Cert(
                     true,
-                    '/root/cert/hysteria2/self.crt',
-                    '/root/cert/hysteria2/self.key'
+                    '/root/cert/do.aigh.store/fullchain.pem',
+                    '/root/cert/do.aigh.store/privkey.pem'
                 )
             ];
-            this.stream.tls.settings.allowInsecure = true;
+            this.stream.tls.sni = 'do.aigh.store';
+            this.stream.tls.settings.allowInsecure = false;
         }
     }
 
