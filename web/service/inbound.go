@@ -33,6 +33,11 @@ type CopyClientsResult struct {
 	Errors  []string `json:"errors"`
 }
 
+const (
+	hysteriaDefaultCertFile = "/root/cert/hysteria2/self.crt"
+	hysteriaDefaultKeyFile  = "/root/cert/hysteria2/self.key"
+)
+
 // GetInbounds retrieves all inbounds for a specific user.
 // Returns a slice of inbound models with their associated client statistics.
 func (s *InboundService) GetInbounds(userId int) ([]*model.Inbound, error) {
@@ -149,6 +154,133 @@ func (s *InboundService) validateSocksProxy(inbound *model.Inbound) error {
 	return nil
 }
 
+func (s *InboundService) normalizeInboundBeforeSave(inbound *model.Inbound) error {
+	if inbound == nil || !model.IsHysteria(inbound.Protocol) {
+		return nil
+	}
+
+	settings := map[string]any{}
+	if strings.TrimSpace(inbound.Settings) != "" {
+		if err := json.Unmarshal([]byte(inbound.Settings), &settings); err != nil {
+			return err
+		}
+	}
+	if v, ok := settings["version"].(float64); ok && int(v) == 1 {
+		return nil
+	}
+
+	stream := map[string]any{}
+	if strings.TrimSpace(inbound.StreamSettings) != "" {
+		if err := json.Unmarshal([]byte(inbound.StreamSettings), &stream); err != nil {
+			return err
+		}
+	}
+	stream["network"] = "hysteria"
+	stream["security"] = "tls"
+
+	tlsSettings, _ := stream["tlsSettings"].(map[string]any)
+	if tlsSettings == nil {
+		tlsSettings = map[string]any{}
+	}
+	if serverName, _ := tlsSettings["serverName"].(string); strings.TrimSpace(serverName) == "" {
+		delete(tlsSettings, "serverName")
+	}
+	tlsSettings["alpn"] = []any{"h3"}
+
+	certificates, _ := tlsSettings["certificates"].([]any)
+	if !hasUsableTLSCertificate(certificates) {
+		tlsSettings["certificates"] = []any{
+			map[string]any{
+				"certificateFile": hysteriaDefaultCertFile,
+				"keyFile":         hysteriaDefaultKeyFile,
+				"oneTimeLoading":  false,
+				"usage":           "encipherment",
+				"buildChain":      false,
+			},
+		}
+	}
+
+	tlsClientSettings, _ := tlsSettings["settings"].(map[string]any)
+	if tlsClientSettings == nil {
+		tlsClientSettings = map[string]any{}
+	}
+	if fp, _ := tlsClientSettings["fingerprint"].(string); fp == "" {
+		tlsClientSettings["fingerprint"] = "chrome"
+	}
+	if _, ok := tlsClientSettings["echConfigList"]; !ok {
+		tlsClientSettings["echConfigList"] = ""
+	}
+	tlsClientSettings["allowInsecure"] = true
+	tlsSettings["settings"] = tlsClientSettings
+	stream["tlsSettings"] = tlsSettings
+
+	hysteriaSettings, _ := stream["hysteriaSettings"].(map[string]any)
+	if hysteriaSettings == nil {
+		hysteriaSettings = map[string]any{}
+	}
+	hysteriaSettings["version"] = 2
+	if _, ok := hysteriaSettings["udpIdleTimeout"]; !ok {
+		hysteriaSettings["udpIdleTimeout"] = 60
+	}
+	stream["hysteriaSettings"] = hysteriaSettings
+
+	normalized, err := json.MarshalIndent(stream, "", "  ")
+	if err != nil {
+		return err
+	}
+	inbound.StreamSettings = string(normalized)
+	return nil
+}
+
+func hasUsableTLSCertificate(certificates []any) bool {
+	for _, item := range certificates {
+		cert, ok := item.(map[string]any)
+		if !ok {
+			continue
+		}
+		certFile, _ := cert["certificateFile"].(string)
+		keyFile, _ := cert["keyFile"].(string)
+		if strings.TrimSpace(certFile) != "" && strings.TrimSpace(keyFile) != "" {
+			return true
+		}
+
+		certBytes, certOK := cert["certificate"].([]any)
+		keyBytes, keyOK := cert["key"].([]any)
+		if certOK && keyOK && len(certBytes) > 0 && len(keyBytes) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func sanitizeStreamSettingsForRuntime(raw string) (string, error) {
+	if strings.TrimSpace(raw) == "" {
+		return raw, nil
+	}
+
+	var stream map[string]any
+	if err := json.Unmarshal([]byte(raw), &stream); err != nil {
+		return "", err
+	}
+
+	if tlsSettings, ok := stream["tlsSettings"].(map[string]any); ok {
+		delete(tlsSettings, "settings")
+		if serverName, _ := tlsSettings["serverName"].(string); strings.TrimSpace(serverName) == "" {
+			delete(tlsSettings, "serverName")
+		}
+	}
+	if realitySettings, ok := stream["realitySettings"].(map[string]any); ok {
+		delete(realitySettings, "settings")
+	}
+	delete(stream, "externalProxy")
+
+	cleaned, err := json.MarshalIndent(stream, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(cleaned), nil
+}
+
 func (s *InboundService) GetClients(inbound *model.Inbound) ([]model.Client, error) {
 	settings := map[string][]model.Client{}
 	json.Unmarshal([]byte(inbound.Settings), &settings)
@@ -246,6 +378,9 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 	if err := s.validateSocksProxy(inbound); err != nil {
 		return inbound, false, err
 	}
+	if err := s.normalizeInboundBeforeSave(inbound); err != nil {
+		return inbound, false, err
+	}
 
 	existEmail, err := s.checkEmailExistForInbound(inbound)
 	if err != nil {
@@ -332,7 +467,14 @@ func (s *InboundService) AddInbound(inbound *model.Inbound) (*model.Inbound, boo
 		needRestart = true
 	} else if inbound.Enable {
 		s.xrayApi.Init(p.GetAPIPort())
-		inboundJson, err1 := json.MarshalIndent(inbound.GenXrayInboundConfig(), "", "  ")
+		runtimeInbound, err1 := s.buildRuntimeInboundForAPI(tx, inbound)
+		if err1 != nil {
+			logger.Debug("Unable to prepare runtime inbound config:", err1)
+			needRestart = true
+			s.xrayApi.Close()
+			return inbound, needRestart, err
+		}
+		inboundJson, err1 := json.MarshalIndent(runtimeInbound.GenXrayInboundConfig(), "", "  ")
 		if err1 != nil {
 			logger.Debug("Unable to marshal inbound config:", err1)
 		}
@@ -495,6 +637,9 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	if err := s.validateSocksProxy(inbound); err != nil {
 		return inbound, false, err
 	}
+	if err := s.normalizeInboundBeforeSave(inbound); err != nil {
+		return inbound, false, err
+	}
 
 	oldInbound, err := s.GetInbound(inbound.Id)
 	if err != nil {
@@ -651,6 +796,11 @@ func (s *InboundService) buildRuntimeInboundForAPI(tx *gorm.DB, inbound *model.I
 
 	clients, ok := settings["clients"].([]any)
 	if !ok {
+		if cleanedStream, err := sanitizeStreamSettingsForRuntime(runtimeInbound.StreamSettings); err != nil {
+			return nil, err
+		} else {
+			runtimeInbound.StreamSettings = cleanedStream
+		}
 		return &runtimeInbound, nil
 	}
 
@@ -693,6 +843,11 @@ func (s *InboundService) buildRuntimeInboundForAPI(tx *gorm.DB, inbound *model.I
 		return nil, err
 	}
 	runtimeInbound.Settings = string(modifiedSettings)
+	if cleanedStream, err := sanitizeStreamSettingsForRuntime(runtimeInbound.StreamSettings); err != nil {
+		return nil, err
+	} else {
+		runtimeInbound.StreamSettings = cleanedStream
+	}
 
 	return &runtimeInbound, nil
 }

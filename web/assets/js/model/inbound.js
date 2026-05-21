@@ -729,7 +729,7 @@ class TlsStreamSettings extends XrayCommonClass {
         }
 
         if (!ObjectUtil.isEmpty(json.settings)) {
-            settings = new TlsStreamSettings.Settings(json.settings.fingerprint, json.settings.echConfigList);
+            settings = TlsStreamSettings.Settings.fromJson(json.settings);
         }
         return new TlsStreamSettings(
             json.serverName,
@@ -832,21 +832,25 @@ TlsStreamSettings.Settings = class extends XrayCommonClass {
     constructor(
         fingerprint = UTLS_FINGERPRINT.UTLS_CHROME,
         echConfigList = '',
+        allowInsecure = false,
     ) {
         super();
         this.fingerprint = fingerprint;
         this.echConfigList = echConfigList;
+        this.allowInsecure = allowInsecure;
     }
     static fromJson(json = {}) {
         return new TlsStreamSettings.Settings(
             json.fingerprint,
             json.echConfigList,
+            json.allowInsecure,
         );
     }
     toJson() {
         return {
             fingerprint: this.fingerprint,
-            echConfigList: this.echConfigList
+            echConfigList: this.echConfigList,
+            allowInsecure: this.allowInsecure
         };
     }
 };
@@ -1648,6 +1652,14 @@ class Inbound extends XrayCommonClass {
             this.stream.security = 'tls';
             // Hysteria runs over QUIC and must not inherit TCP TLS ALPN defaults.
             this.stream.tls.alpn = [ALPN_OPTION.H3];
+            this.stream.tls.certs = [
+                new TlsStreamSettings.Cert(
+                    true,
+                    '/root/cert/hysteria2/self.crt',
+                    '/root/cert/hysteria2/self.key'
+                )
+            ];
+            this.stream.tls.settings.allowInsecure = true;
         }
     }
 

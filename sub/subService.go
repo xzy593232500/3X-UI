@@ -430,7 +430,9 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 		params["alpn"] = strings.Join(alpn, ",")
 	}
 	if sniValue, ok := searchKey(tlsSetting, "serverName"); ok {
-		params["sni"], _ = sniValue.(string)
+		if sni, _ := sniValue.(string); strings.TrimSpace(sni) != "" {
+			params["sni"] = sni
+		}
 	}
 
 	tlsSettings, _ := searchKey(tlsSetting, "settings")
@@ -666,7 +668,9 @@ func applyShareTLSParams(stream map[string]any, params map[string]string) {
 		params["alpn"] = strings.Join(alpn, ",")
 	}
 	if sniValue, ok := searchKey(tlsSetting, "serverName"); ok {
-		params["sni"], _ = sniValue.(string)
+		if sni, _ := sniValue.(string); strings.TrimSpace(sni) != "" {
+			params["sni"] = sni
+		}
 	}
 
 	tlsSettings, _ := searchKey(tlsSetting, "settings")
@@ -688,7 +692,9 @@ func applyVmessTLSParams(stream map[string]any, obj map[string]any) {
 		obj["alpn"] = strings.Join(alpn, ",")
 	}
 	if sniValue, ok := searchKey(tlsSetting, "serverName"); ok {
-		obj["sni"], _ = sniValue.(string)
+		if sni, _ := sniValue.(string); strings.TrimSpace(sni) != "" {
+			obj["sni"] = sni
+		}
 	}
 
 	tlsSettings, _ := searchKey(tlsSetting, "settings")

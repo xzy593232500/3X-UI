@@ -452,10 +452,15 @@ func (s *SubClashService) streamData(stream string) map[string]any {
 func (s *SubClashService) tlsData(tData map[string]any) map[string]any {
 	tlsData := make(map[string]any, 1)
 	tlsClientSettings, _ := tData["settings"].(map[string]any)
-	tlsData["serverName"] = tData["serverName"]
+	if serverName, ok := tData["serverName"].(string); ok && strings.TrimSpace(serverName) != "" {
+		tlsData["serverName"] = serverName
+	}
 	tlsData["alpn"] = tData["alpn"]
 	if fingerprint, ok := tlsClientSettings["fingerprint"].(string); ok {
 		tlsData["fingerprint"] = fingerprint
+	}
+	if allowInsecure, ok := tlsClientSettings["allowInsecure"].(bool); ok && allowInsecure {
+		tlsData["allowInsecure"] = true
 	}
 	return tlsData
 }
