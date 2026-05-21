@@ -1276,6 +1276,7 @@
       clientCount: [],
       onlineClients: [],
       lastOnlineMap: {},
+      currentInboundOnlyRefreshUntil: 0,
       upstreamNodes: [],
       inboundUpstreamModal: {
         visible: false,
@@ -1372,6 +1373,26 @@
         setTimeout(() => {
           this.refreshing = false;
         }, 500);
+      },
+      async getDBInbound(dbInboundId, options = {}) {
+        this.refreshing = true;
+        const msg = await HttpUtil.get(`/panel/api/inbounds/get/${dbInboundId}`);
+        if (!msg.success || !msg.obj) {
+          this.refreshing = false;
+          return null;
+        }
+
+        await this.getLastOnlineMap();
+        await this.getOnlineUsers();
+
+        const dbInbound = this.replaceDBInbound(msg.obj, options);
+        setTimeout(() => {
+          this.refreshing = false;
+        }, 500);
+        return dbInbound;
+      },
+      shouldSkipFullInboundRefresh() {
+        return Date.now() < Number(this.currentInboundOnlyRefreshUntil || 0);
       },
       async getOnlineUsers() {
         const msg = await HttpUtil.post('/panel/api/inbounds/onlines');
@@ -1582,6 +1603,41 @@
         } else {
           this.searchInbounds(this.searchKey);
         }
+      },
+      replaceDBInbound(inbound, options = {}) {
+        const dbInbound = new DBInbound(inbound);
+        normalizeInboundSocksProxyFields(dbInbound, inbound);
+        if (typeof options.preserveEmergency === 'boolean') {
+          dbInbound.emergencyEnable = options.preserveEmergency;
+        }
+        const toInbound = dbInbound.toInbound();
+        const existingIndex = this.dbInbounds.findIndex(row => Number(row.id) === Number(dbInbound.id));
+        if (existingIndex >= 0) {
+          this.$set(this.dbInbounds, existingIndex, dbInbound);
+          this.$set(this.inbounds, existingIndex, toInbound);
+        } else {
+          let insertAt = this.dbInbounds.findIndex(row => Number(row.id || 0) < Number(dbInbound.id || 0));
+          if (insertAt < 0) insertAt = this.dbInbounds.length;
+          this.dbInbounds.splice(insertAt, 0, dbInbound);
+          this.inbounds.splice(insertAt, 0, toInbound);
+        }
+
+        if ([Protocols.VMESS, Protocols.VLESS, Protocols.TROJAN, Protocols.SHADOWSOCKS, Protocols.HYSTERIA].includes(dbInbound.protocol) &&
+          !(dbInbound.isSS && (!toInbound.isSSMultiUser))) {
+          this.$set(this.clientCount, dbInbound.id, this.getClientCounts(dbInbound, toInbound));
+        } else {
+          this.$delete(this.clientCount, dbInbound.id);
+        }
+
+        if (!this.loadingStates.fetched) {
+          this.loadingStates.fetched = true
+        }
+        if (this.enableFilter) {
+          this.filterInbounds();
+        } else {
+          this.searchInbounds(this.searchKey);
+        }
+        return dbInbound;
       },
       getClientCounts(dbInbound, inbound) {
         let clientCount = 0,
@@ -1962,11 +2018,13 @@
 
         const formData = this.buildInboundFormData(data);
 
-        const msg = await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
-        if (msg.success) {
-          await this.restoreInboundEmergencyState(dbInbound.id, expectedEmergency);
-        }
-        return msg;
+        return await this.submitCurrentInbound(
+          `/panel/api/inbounds/update/${dbInbound.id}`,
+          formData,
+          inModal,
+          dbInbound.id,
+          expectedEmergency
+        );
       },
       openAddClient(dbInboundId) {
         dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
@@ -2166,43 +2224,13 @@
         if (!dbInbound) return;
         const expectedEmergency = !!dbInbound.emergencyEnable;
         dbInbound.enable = state;
-        let inbound = dbInbound.toInbound();
-        const data = {
-          up: dbInbound.up,
-          down: dbInbound.down,
-          total: dbInbound.total,
-          remark: dbInbound.remark,
-          enable: dbInbound.enable,
-          expiryTime: dbInbound.expiryTime,
-          deviceLimit: dbInbound.deviceLimit,
-          trafficReset: dbInbound.trafficReset,
-          lastTrafficResetTime: dbInbound.lastTrafficResetTime,
-          socksProxyEnabled: dbInbound.socksProxyEnabled,
-          socksProxyHost: dbInbound.socksProxyHost,
-          socksProxyPort: dbInbound.socksProxyPort,
-          socksProxyUsername: dbInbound.socksProxyUsername,
-          socksProxyPassword: dbInbound.socksProxyPassword,
-
-          listen: inbound.listen,
-          port: inbound.port,
-          protocol: inbound.protocol,
-          settings: inbound.settings.toString(),
-        };
-        if (inbound.canEnableStream()) {
-          data.streamSettings = inbound.stream.toString();
-        } else if (inbound.stream?.sockopt) {
-          data.streamSettings = JSON.stringify({
-            sockopt: inbound.stream.sockopt.toJson()
-          }, null, 2);
-        }
-        data.sniffing = inbound.sniffing.toString();
-
-        const formData = this.buildInboundFormData(data);
-
-        const msg = await this.submit(`/panel/api/inbounds/update/${dbInboundId}`, formData);
-        if (msg.success) {
-          await this.restoreInboundEmergencyState(dbInboundId, expectedEmergency);
-        }
+        await this.submitCurrentInbound(
+          `/panel/api/inbounds/setEnable/${dbInboundId}`,
+          { enable: state },
+          null,
+          dbInboundId,
+          expectedEmergency
+        );
       },
       async toggleInboundEmergency(dbInbound, checked) {
         const previous = !checked;
@@ -2215,7 +2243,7 @@
         }
       },
       async restoreInboundEmergencyState(inboundId, expected) {
-        const current = this.dbInbounds.find(row => row.id === inboundId);
+        const current = this.dbInbounds.find(row => Number(row.id) === Number(inboundId));
         if (current) {
           current.emergencyEnable = expected;
         }
@@ -2224,8 +2252,27 @@
             enable: expected
           });
         } catch (error) {
-          console.error('Failed to restore inbound emergency state:', error);
+          console.error('Failed to restore inbound emergency state:', inboundId, error);
         }
+      },
+      async submitCurrentInbound(url, data, modal, dbInboundId, expectedEmergency) {
+        const skipFullRefreshUntil = Date.now() + 4000;
+        this.currentInboundOnlyRefreshUntil = skipFullRefreshUntil;
+        const msg = await HttpUtil.postWithModal(url, data, modal);
+        if (msg.success) {
+          if (typeof expectedEmergency === 'boolean') {
+            await this.restoreInboundEmergencyState(dbInboundId, expectedEmergency);
+          }
+          await this.getDBInbound(dbInboundId, {
+            preserveEmergency: expectedEmergency
+          });
+        }
+        setTimeout(() => {
+          if (this.currentInboundOnlyRefreshUntil === skipFullRefreshUntil) {
+            this.currentInboundOnlyRefreshUntil = 0;
+          }
+        }, 4000);
+        return msg;
       },
       openQuickConfigModal(dbInbound) {
         if (!dbInbound) return;
@@ -2730,6 +2777,7 @@
 
         // Listen for inbounds updates
         window.wsClient.on('inbounds', (payload) => {
+          if (this.shouldSkipFullInboundRefresh()) return;
           if (payload && Array.isArray(payload)) {
             // Use setInbounds to properly convert to DBInbound objects with methods
             this.setInbounds(payload);
@@ -2741,6 +2789,7 @@
         let invalidateTimer = null;
         window.wsClient.on('invalidate', (payload) => {
           if (payload && (payload.type === 'inbounds' || payload.type === 'traffic')) {
+            if (this.shouldSkipFullInboundRefresh()) return;
             // Debounce to avoid flooding the REST API with multiple invalidate signals
             if (invalidateTimer) clearTimeout(invalidateTimer);
             invalidateTimer = setTimeout(() => {
