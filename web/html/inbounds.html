@@ -442,7 +442,7 @@
                         @change="switchEnable(dbInbound.id,dbInbound.enable)"></a-switch>
                     </template>
                     <template slot="emergencyEnable" slot-scope="text, dbInbound">
-                      <a-switch v-model="dbInbound.emergencyEnable"
+                      <a-switch :checked="!!dbInbound.emergencyEnable"
                         @change="checked => toggleInboundEmergency(dbInbound, checked)"></a-switch>
                     </template>
                     <template slot="expiryTime" slot-scope="text, dbInbound">
@@ -1929,7 +1929,6 @@
         }
       },
       async updateInbound(inbound, dbInbound) {
-        const expectedEmergency = !!dbInbound.emergencyEnable;
         const data = {
           up: dbInbound.up,
           down: dbInbound.down,
@@ -1962,11 +1961,7 @@
 
         const formData = this.buildInboundFormData(data);
 
-        const msg = await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
-        if (msg.success) {
-          await this.restoreInboundEmergencyState(dbInbound.id, expectedEmergency);
-        }
-        return msg;
+        return await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
       },
       openAddClient(dbInboundId) {
         dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
@@ -2164,7 +2159,6 @@
       async switchEnable(dbInboundId, state) {
         let dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
         if (!dbInbound) return;
-        const expectedEmergency = !!dbInbound.emergencyEnable;
         dbInbound.enable = state;
         let inbound = dbInbound.toInbound();
         const data = {
@@ -2199,32 +2193,19 @@
 
         const formData = this.buildInboundFormData(data);
 
-        const msg = await this.submit(`/panel/api/inbounds/update/${dbInboundId}`, formData);
-        if (msg.success) {
-          await this.restoreInboundEmergencyState(dbInboundId, expectedEmergency);
-        }
+        await this.submit(`/panel/api/inbounds/update/${dbInboundId}`, formData);
       },
       async toggleInboundEmergency(dbInbound, checked) {
-        const previous = !checked;
-        dbInbound.emergencyEnable = checked;
-        const msg = await HttpUtil.post(`/panel/api/subscription-market/inbounds/${dbInbound.id}/emergency`, {
-          enable: checked
-        });
-        if (!msg.success) {
-          dbInbound.emergencyEnable = previous;
-        }
-      },
-      async restoreInboundEmergencyState(inboundId, expected) {
-        const current = this.dbInbounds.find(row => row.id === inboundId);
-        if (current) {
-          current.emergencyEnable = expected;
-        }
-        try {
-          await axios.post(`/panel/api/subscription-market/inbounds/${inboundId}/emergency`, {
-            enable: expected
-          });
-        } catch (error) {
-          console.error('Failed to restore inbound emergency state:', error);
+        const previous = !!dbInbound.emergencyEnable;
+        const next = checked === true || checked === 1 || checked === '1' || checked === 'true' || checked === 'on';
+        this.$set(dbInbound, 'emergencyEnable', next);
+        const formData = new FormData();
+        formData.append('enable', next ? 'true' : 'false');
+        const msg = await HttpUtil.post(`/panel/api/subscription-market/inbounds/${dbInbound.id}/emergency`, formData);
+        if (msg.success) {
+          await this.getDBInbounds();
+        } else {
+          this.$set(dbInbound, 'emergencyEnable', previous);
         }
       },
       openQuickConfigModal(dbInbound) {
