@@ -118,8 +118,8 @@ func BuildSubscriptionExpiryInfoNode(expiryTime int64) string {
 	obj := map[string]any{
 		"v":    "2",
 		"ps":   remark,
-		"add":  "127.0.0.1",
-		"port": 9,
+		"add":  "do.aigh.store",
+		"port": 80,
 		"id":   subscriptionInfoNodeUUID,
 		"aid":  "0",
 		"scy":  "auto",
@@ -135,17 +135,10 @@ func BuildSubscriptionExpiryInfoNode(expiryTime int64) string {
 
 func subscriptionExpiryInfoRemark(expiryTime int64) string {
 	if expiryTime <= 0 {
-		return "订阅到期: 永久有效"
+		return "过期时间：永久有效"
 	}
 	expireAt := time.UnixMilli(expiryTime).In(time.FixedZone("CST", 8*3600))
-	dateText := expireAt.Format("2006-01-02 15:04")
-	remaining := expiryTime - time.Now().UnixMilli()
-	if remaining <= 0 {
-		return fmt.Sprintf("订阅到期: %s | 已过期", dateText)
-	}
-	const dayMs int64 = 24 * 60 * 60 * 1000
-	days := (remaining + dayMs - 1) / dayMs
-	return fmt.Sprintf("订阅到期: %s | %d天", dateText, days)
+	return fmt.Sprintf("过期时间：%s", expireAt.Format("2006-01-02"))
 }
 
 func (s *SubscriptionMarketService) GetUpstreams() ([]model.UpstreamSubscription, error) {
@@ -1648,6 +1641,7 @@ func isSubscriptionInfoNodeName(name string) bool {
 	}
 	infoPrefixes := []string{
 		"订阅到期",
+		"过期时间",
 		"subscription expiry",
 		"subscription expire",
 		"剩余流量",
