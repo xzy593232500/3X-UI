@@ -774,12 +774,6 @@
         <a-input-number v-model="quickConfigModal.customDays" :min="1" :max="3650" class="w-100"></a-input-number>
       </a-form-item>
       <a-divider orientation="left">流量配置</a-divider>
-      <a-form-item label="流量处理方式">
-        <a-radio-group v-model="quickConfigModal.trafficMode" button-style="solid" class="quick-config-radio-group">
-          <a-radio-button value="add">在当前总流量上增加</a-radio-button>
-          <a-radio-button value="reset">覆盖并重置已用流量</a-radio-button>
-        </a-radio-group>
-      </a-form-item>
       <a-form-item label="流量额度">
         <a-radio-group v-model="quickConfigModal.trafficPreset" button-style="solid" class="quick-config-radio-group">
           <a-radio-button value="none">不调整</a-radio-button>
@@ -794,9 +788,16 @@
       <a-form-item v-if="quickConfigModal.trafficPreset === 'custom'" label="自定义流量（GB）">
         <a-input-number v-model="quickConfigModal.customTrafficGb" :min="1" :max="1048576" class="w-100"></a-input-number>
       </a-form-item>
+      <a-form-item v-if="quickConfigModal.trafficPreset !== 'none'" label="流量处理方式">
+        <a-radio-group v-model="quickConfigModal.trafficMode" button-style="solid" class="quick-config-radio-group">
+          <a-radio-button value="add">在当前总流量上增加</a-radio-button>
+          <a-radio-button value="reset">覆盖并重置已用流量</a-radio-button>
+        </a-radio-group>
+      </a-form-item>
       <a-divider orientation="left">设备限制</a-divider>
-      <a-form-item label="增加设备限制数量">
-        <a-input-number v-model="quickConfigModal.deviceLimitAdd" :min="0" :max="9999" class="w-100"></a-input-number>
+      <a-form-item label="调整设备限制数量">
+        <a-input-number v-model="quickConfigModal.deviceLimitDelta" :min="quickConfigDeviceMinDelta" :max="9999"
+          class="w-100"></a-input-number>
       </a-form-item>
       <a-alert type="info" show-icon :message="quickConfigPreview"></a-alert>
     </a-form>
@@ -1290,7 +1291,7 @@
         trafficMode: 'add',
         trafficPreset: 'none',
         customTrafficGb: 100,
-        deviceLimitAdd: 0,
+        deviceLimitDelta: 0,
       },
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
       refreshing: false,
@@ -2208,7 +2209,7 @@
         this.quickConfigModal.trafficMode = 'add';
         this.quickConfigModal.trafficPreset = 'none';
         this.quickConfigModal.customTrafficGb = 100;
-        this.quickConfigModal.deviceLimitAdd = 0;
+        this.quickConfigModal.deviceLimitDelta = 0;
         this.quickConfigModal.visible = true;
       },
       calculateQuickExpiry() {
@@ -2267,9 +2268,9 @@
         return bytes;
       },
       calculateQuickDeviceLimit(dbInbound) {
-        const add = Math.max(0, Number(this.quickConfigModal.deviceLimitAdd || 0));
-        if (add <= 0) return Number(dbInbound.deviceLimit || 0);
-        return Math.max(0, Number(dbInbound.deviceLimit || 0)) + add;
+        const current = Math.max(1, Number(dbInbound.deviceLimit || 1));
+        const delta = Number(this.quickConfigModal.deviceLimitDelta || 0);
+        return Math.max(1, current + delta);
       },
       formatTrafficLimit(value) {
         return Number(value || 0) > 0 ? SizeFormatter.sizeFormat(Number(value || 0)) : '无限';
@@ -2288,8 +2289,8 @@
         try {
           const inbound = dbInbound.toInbound();
           const trafficTotal = this.calculateQuickTrafficTotal(dbInbound);
-          const deviceAdd = Math.max(0, Number(this.quickConfigModal.deviceLimitAdd || 0));
-          const hasChanges = this.quickConfigModal.durationPreset !== 'none' || trafficTotal !== null || deviceAdd > 0;
+          const deviceDelta = Number(this.quickConfigModal.deviceLimitDelta || 0);
+          const hasChanges = this.quickConfigModal.durationPreset !== 'none' || trafficTotal !== null || deviceDelta !== 0;
           if (!hasChanges) {
             this.quickConfigModal.visible = false;
             return;
@@ -2848,10 +2849,16 @@
           traffic = `${mode} ${this.formatTrafficLimit(trafficTotal)}`;
         }
         const deviceLimit = this.calculateQuickDeviceLimit(dbInbound);
-        const device = Number(this.quickConfigModal.deviceLimitAdd || 0) > 0 ?
+        const deviceDelta = Number(this.quickConfigModal.deviceLimitDelta || 0);
+        const device = deviceDelta !== 0 ?
           `${deviceLimit} 台` :
           '不调整';
         return `到期：${expiry}；流量：${traffic}；设备限制：${device}`;
+      },
+      quickConfigDeviceMinDelta() {
+        const dbInbound = this.dbInbounds.find(row => row.id === this.quickConfigModal.inboundId);
+        if (!dbInbound) return 0;
+        return 1 - Math.max(1, Number(dbInbound.deviceLimit || 1));
       }
     },
   });
