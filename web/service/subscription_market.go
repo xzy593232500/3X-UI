@@ -118,7 +118,7 @@ func BuildSubscriptionExpiryInfoNode(expiryTime int64) string {
 	obj := map[string]any{
 		"v":    "2",
 		"ps":   remark,
-		"add":  "x.xu-ai.top",
+		"add":  "do.aigh.store",
 		"port": 80,
 		"id":   subscriptionInfoNodeUUID,
 		"aid":  "0",

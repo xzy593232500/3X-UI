@@ -5,13 +5,13 @@
 客户端访问：
 
 ```text
-https://你的订阅域名/jbhd/customer-sub/订阅码
+https://do2.aigh.store/jbhd/customer-sub/订阅码
 ```
 
 Worker 实际拉取：
 
 ```text
-http://192.241.174.137/jbhd/customer-sub/订阅码
+http://do.aigh.store/jbhd/customer-sub/订阅码
 ```
 
 节点内容仍然由 3X-UI 生成，Hysteria2、VMess、VLESS 节点连接地址不要改成 Worker 域名。
@@ -25,13 +25,13 @@ http://192.241.174.137/jbhd/customer-sub/订阅码
 5. 给 Worker 绑定 Custom Domain，例如：
 
 ```text
-sub.example.com
+do2.aigh.store
 ```
 
 6. 访问：
 
 ```text
-https://sub.example.com/jbhd/customer-sub/8xkz4pizp6blgbd8
+https://do2.aigh.store/jbhd/customer-sub/8xkz4pizp6blgbd8
 ```
 
 页面应该显示一段以 `dm1lc3M6` 开头的 Base64 订阅文本。
@@ -51,5 +51,6 @@ npx wrangler deploy
 - 不要把节点域名改成 Worker 域名。
 - 不要用 Cloudflare 普通橙云代理 Hysteria2、VMess、VLESS 节点端口。
 - Worker 只适合代理订阅文本这种 HTTP 内容。
-- 如果以后源站 IP 变了，修改 `cloudflare-worker-subscription-proxy.js` 里的 `ORIGIN_BASE`。
-- 当前源站订阅入口是 `http://192.241.174.137/jbhd/customer-sub/`。
+- 如果以后源站域名变了，修改 `cloudflare-worker-subscription-proxy.js` 里的 `ORIGIN_BASE`。
+- 当前源站订阅入口是 `http://do.aigh.store/jbhd/customer-sub/`。
+- 当前客户订阅入口建议使用 `https://do2.aigh.store/jbhd/customer-sub/`。

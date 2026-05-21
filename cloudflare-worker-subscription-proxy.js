@@ -1,4 +1,4 @@
-const ORIGIN_BASE = "http://192.241.174.137";
+const ORIGIN_BASE = "http://do.aigh.store";
 const SUB_PREFIX = "/jbhd/customer-sub/";
 
 export default {
