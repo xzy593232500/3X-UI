@@ -367,7 +367,7 @@
       </a-form-item>
       <template v-if="inbound.stream.finalmask.quicParams.hasUdpHop">
         <a-form-item label="Hop Ports">
-          <a-input v-model.trim="inbound.stream.finalmask.quicParams.udpHop.ports" placeholder="e.g. 20000-50000" />
+          <a-input v-model.trim="inbound.stream.finalmask.quicParams.udpHop.ports" placeholder="e.g. 10000-19999" />
         </a-form-item>
         <a-form-item label="Hop Interval (s)">
           <a-input-number v-model.number="inbound.stream.finalmask.quicParams.udpHop.interval" :min="5" />

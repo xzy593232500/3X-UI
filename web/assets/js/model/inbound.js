@@ -1244,7 +1244,7 @@ class QuicParams extends XrayCommonClass {
     }
 
     set hasUdpHop(value) {
-        this.udpHop = value ? (this.udpHop || { ports: '20000-50000', interval: '5-10' }) : undefined;
+        this.udpHop = value ? (this.udpHop || { ports: '10000-19999', interval: '5-10' }) : undefined;
     }
 
     static fromJson(json = {}) {
@@ -1503,8 +1503,15 @@ class Sniffing extends XrayCommonClass {
 }
 
 class Inbound extends XrayCommonClass {
+    static randomPort(protocol = '') {
+        if (protocol === Protocols.HYSTERIA) {
+            return RandomUtil.randomInteger(10000, 19999);
+        }
+        return RandomUtil.randomInteger(10000, 60000);
+    }
+
     constructor(
-        port = RandomUtil.randomInteger(10000, 60000),
+        port = null,
         listen = '',
         protocol = Protocols.VLESS,
         settings = null,
@@ -1514,7 +1521,7 @@ class Inbound extends XrayCommonClass {
         clientStats = '',
     ) {
         super();
-        this.port = port;
+        this.port = port || Inbound.randomPort(protocol);
         this.listen = listen;
         this._protocol = protocol;
         this.settings = ObjectUtil.isEmpty(settings) ? Inbound.Settings.getSettings(protocol) : settings;
@@ -1648,6 +1655,9 @@ class Inbound extends XrayCommonClass {
             this.tls = false;
         }
         if (protocol === Protocols.HYSTERIA) {
+            if (!this.port || this.port >= 20000) {
+                this.port = Inbound.randomPort(protocol);
+            }
             this.stream.network = 'hysteria';
             this.stream.security = 'tls';
             // Hysteria runs over QUIC and must not inherit TCP TLS ALPN defaults.
@@ -1794,7 +1804,7 @@ class Inbound extends XrayCommonClass {
     }
 
     reset() {
-        this.port = RandomUtil.randomInteger(10000, 60000);
+        this.port = Inbound.randomPort();
         this.listen = '';
         this.protocol = Protocols.VMESS;
         this.settings = Inbound.Settings.getSettings(Protocols.VMESS);

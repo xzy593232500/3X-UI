@@ -1835,7 +1835,7 @@
           socksProxyPassword: dbInbound.socksProxyPassword,
 
           listen: '',
-          port: RandomUtil.randomInteger(10000, 60000),
+          port: Inbound.randomPort(baseInbound.protocol),
           protocol: baseInbound.protocol,
           settings: Inbound.Settings.getSettings(baseInbound.protocol).toString(),
           streamSettings: baseInbound.stream.toString(),
