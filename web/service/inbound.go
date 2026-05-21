@@ -796,7 +796,7 @@ func (s *InboundService) UpdateInbound(inbound *model.Inbound) (*model.Inbound, 
 	oldInbound.Enable = inbound.Enable
 	oldInbound.ExpiryTime = inbound.ExpiryTime
 	oldInbound.DeviceLimit = inbound.DeviceLimit
-	oldInbound.EmergencyEnable = inbound.EmergencyEnable
+	// EmergencyEnable is controlled only by the subscription-market toggle endpoint.
 	oldInbound.TrafficReset = inbound.TrafficReset
 	oldInbound.SocksProxyEnabled = inbound.SocksProxyEnabled
 	oldInbound.SocksProxyHost = inbound.SocksProxyHost
