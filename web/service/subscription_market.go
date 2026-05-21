@@ -56,6 +56,7 @@ type UpstreamNodeView struct {
 	Protocol     string `json:"protocol"`
 	Link         string `json:"link"`
 	SourceType   string `json:"sourceType"`
+	Tags         string `json:"tags"`
 	Enable       bool   `json:"enable"`
 	Emergency    bool   `json:"emergency"`
 	Sort         int    `json:"sort"`
@@ -224,6 +225,40 @@ func (s *SubscriptionMarketService) SetNodesEnable(nodeIDs []int, enable bool) e
 		Update("enable", enable).Error
 }
 
+func (s *SubscriptionMarketService) UpdateNodesTag(nodeIDs []int, tag string, add bool) error {
+	nodeIDs = uniquePositiveInts(nodeIDs)
+	tag = normalizeNodeTag(tag)
+	if len(nodeIDs) == 0 || tag == "" {
+		return nil
+	}
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var nodes []model.UpstreamNode
+		if err := tx.Where("id IN ?", nodeIDs).Find(&nodes).Error; err != nil {
+			return err
+		}
+		for _, node := range nodes {
+			tags := decodeNodeTags(node.Tags)
+			if add {
+				tags = append(tags, tag)
+			} else {
+				filtered := tags[:0]
+				for _, item := range tags {
+					if !strings.EqualFold(item, tag) {
+						filtered = append(filtered, item)
+					}
+				}
+				tags = filtered
+			}
+			if err := tx.Model(&model.UpstreamNode{}).
+				Where("id = ?", node.Id).
+				Update("tags", encodeNodeTags(tags)).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
 func (s *SubscriptionMarketService) GetUpstreamEmergencyNodeIDs(upstreamID int) ([]int, error) {
 	var count int64
 	if err := database.GetDB().Model(&model.UpstreamSubscription{}).Where("id = ?", upstreamID).Count(&count).Error; err != nil {
@@ -372,7 +407,7 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 func (s *SubscriptionMarketService) GetNodes(enabledOnly bool) ([]UpstreamNodeView, error) {
 	db := database.GetDB().
 		Table("upstream_nodes").
-		Select("upstream_nodes.id, upstream_nodes.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.source_type, upstream_nodes.enable, upstream_nodes.emergency, upstream_nodes.sort, upstream_nodes.created_at, upstream_nodes.updated_at").
+		Select("upstream_nodes.id, upstream_nodes.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_nodes.name, upstream_nodes.protocol, upstream_nodes.link, upstream_nodes.source_type, upstream_nodes.tags, upstream_nodes.enable, upstream_nodes.emergency, upstream_nodes.sort, upstream_nodes.created_at, upstream_nodes.updated_at").
 		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 		Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc")
 	if enabledOnly {
@@ -1646,6 +1681,63 @@ func uniquePositiveInts(values []int) []int {
 		result = append(result, value)
 	}
 	sort.Ints(result)
+	return result
+}
+
+func normalizeNodeTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	tag = strings.Trim(tag, "#,，;；")
+	if len([]rune(tag)) > 32 {
+		runes := []rune(tag)
+		tag = string(runes[:32])
+	}
+	return tag
+}
+
+func decodeNodeTags(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var parsed []string
+	if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+		return normalizeNodeTags(parsed)
+	}
+	return normalizeNodeTags(strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == '，' || r == ';' || r == '；' || r == '\n' || r == '\t'
+	}))
+}
+
+func encodeNodeTags(tags []string) string {
+	tags = normalizeNodeTags(tags)
+	if len(tags) == 0 {
+		return ""
+	}
+	data, err := json.Marshal(tags)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
+func normalizeNodeTags(tags []string) []string {
+	seen := make(map[string]bool, len(tags))
+	result := make([]string, 0, len(tags))
+	for _, tag := range tags {
+		tag = normalizeNodeTag(tag)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, tag)
+		if len(result) >= 24 {
+			break
+		}
+	}
 	return result
 }
 

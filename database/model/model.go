@@ -163,6 +163,7 @@ type UpstreamNode struct {
 	Link       string `json:"link" form:"link" gorm:"type:text"`
 	Clash      string `json:"clash" form:"clash" gorm:"type:text"`
 	SourceType string `json:"sourceType" form:"sourceType" gorm:"default:uri;column:source_type"`
+	Tags       string `json:"tags" form:"tags" gorm:"type:text"`
 	Hash       string `json:"hash" form:"hash" gorm:"uniqueIndex:idx_upstream_node_hash"`
 	Enable     bool   `json:"enable" form:"enable" gorm:"default:true"`
 	Emergency  bool   `json:"emergency" form:"emergency" gorm:"default:false"`

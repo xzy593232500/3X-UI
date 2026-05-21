@@ -49,6 +49,7 @@ func (a *SubscriptionMarketAPIController) initRouter(g *gin.RouterGroup) {
 	nodes.GET("/list", a.listNodes)
 	nodes.POST("/toggle/:id", a.toggleNode)
 	nodes.POST("/batch-toggle", a.batchToggleNodes)
+	nodes.POST("/batch-tags", a.batchUpdateNodeTags)
 
 	customers := g.Group("/customers")
 	customers.GET("/list", a.listCustomers)
@@ -91,6 +92,12 @@ type nodeSelectionForm struct {
 type nodeBatchToggleForm struct {
 	NodeIds []int `json:"nodeIds" form:"nodeIds"`
 	Enable  bool  `json:"enable" form:"enable"`
+}
+
+type nodeBatchTagsForm struct {
+	NodeIds []int  `json:"nodeIds" form:"nodeIds"`
+	Tag     string `json:"tag" form:"tag"`
+	Add     bool   `json:"add" form:"add"`
 }
 
 func (a *SubscriptionMarketAPIController) listUpstreams(c *gin.Context) {
@@ -223,6 +230,16 @@ func (a *SubscriptionMarketAPIController) batchToggleNodes(c *gin.Context) {
 	}
 	err := a.subscriptionMarket.SetNodesEnable(form.NodeIds, form.Enable)
 	jsonMsg(c, "batch toggle upstream nodes", err)
+}
+
+func (a *SubscriptionMarketAPIController) batchUpdateNodeTags(c *gin.Context) {
+	var form nodeBatchTagsForm
+	if err := c.ShouldBind(&form); err != nil {
+		jsonMsg(c, "batch update upstream node tags", err)
+		return
+	}
+	err := a.subscriptionMarket.UpdateNodesTag(form.NodeIds, form.Tag, form.Add)
+	jsonMsg(c, "batch update upstream node tags", err)
 }
 
 func (a *SubscriptionMarketAPIController) listCustomers(c *gin.Context) {

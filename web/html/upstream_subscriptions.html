@@ -101,8 +101,20 @@
     :class="themeSwitcher.currentTheme" width="980px">
     <a-alert type="info" show-icon message="关闭的节点不会出现在客户添加页，也不会输出到客户订阅或入站订阅。"
       class="mb-10"></a-alert>
+    <div class="node-filter-tools">
+      <a-input v-model="nodeModal.search" allow-clear class="node-search-input"
+        placeholder="搜索节点、协议、订阅或标签"></a-input>
+      <a-space class="node-edit-tools">
+        <a-input v-model="nodeModal.tagInput" allow-clear class="node-tag-input" placeholder="输入自定义标签"
+          @pressEnter="updateSelectedNodesTag(true)"></a-input>
+        <a-button type="primary" icon="tag" :disabled="!canUpdateSelectedTag"
+          @click="updateSelectedNodesTag(true)">添加到已选</a-button>
+        <a-button icon="delete" :disabled="!canUpdateSelectedTag"
+          @click="updateSelectedNodesTag(false)">从已选移除</a-button>
+      </a-space>
+    </div>
     <div class="node-tag-tools" v-if="nodeQuickTags.length">
-      <span class="tag-tools-label">标签批量：</span>
+      <span class="tag-tools-label">自定义标签：</span>
       <a-tag v-for="tag in nodeQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
         [[ tag.label ]] [[ tag.nodeIds.length ]]
         <a-divider type="vertical"></a-divider>
@@ -111,8 +123,8 @@
         <a @click="batchToggleNodesByTag(tag, false)">关闭</a>
       </a-tag>
     </div>
-    <a-table row-key="id" :columns="nodeColumns" :data-source="nodeModal.nodes" :pagination="false" size="middle"
-      :scroll="{ x: 900, y: 520 }">
+    <a-table row-key="id" :columns="nodeColumns" :data-source="filteredNodeModalNodes" :pagination="false" size="middle"
+      :row-selection="nodeRowSelection" :scroll="{ x: 1040, y: 520 }">
       <template slot="enable" slot-scope="text, record">
         <a-switch :checked="record.enable" @change="checked => toggleNode(record, checked)"></a-switch>
       </template>
@@ -121,6 +133,12 @@
       </template>
       <template slot="emergency" slot-scope="text, record">
         <a-tag v-if="record.emergency" color="red">应急</a-tag>
+        <span v-else>-</span>
+      </template>
+      <template slot="tags" slot-scope="text, record">
+        <template v-if="parseNodeTags(record).length">
+          <a-tag v-for="tag in parseNodeTags(record)" :key="tag" color="geekblue">[[ tag ]]</a-tag>
+        </template>
         <span v-else>-</span>
       </template>
       <template slot="copyLink" slot-scope="text, record">
@@ -137,8 +155,10 @@
     @ok="submitEmergencyNodes">
     <a-alert type="info" show-icon message="选中的节点会作为应急节点；入站列表里打开应急启用后，客户更新订阅会临时获取这些节点。"
       class="mb-10"></a-alert>
+    <a-input v-model="emergencyModal.search" allow-clear class="node-search-input mb-10"
+      placeholder="搜索节点、协议、订阅或标签"></a-input>
     <div class="node-tag-tools" v-if="emergencyQuickTags.length">
-      <span class="tag-tools-label">标签批量：</span>
+      <span class="tag-tools-label">自定义标签：</span>
       <a-tag v-for="tag in emergencyQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
         [[ tag.label ]] [[ tag.nodeIds.length ]]
         <a-divider type="vertical"></a-divider>
@@ -149,11 +169,12 @@
     </div>
     <div class="node-checkbox-group">
       <a-row :gutter="[8,8]">
-        <a-col v-for="node in emergencyModal.nodes" :key="node.id" :span="isMobile ? 24 : 12">
+        <a-col v-for="node in filteredEmergencyNodes" :key="node.id" :span="isMobile ? 24 : 12">
           <a-checkbox :checked="isEmergencyNodeSelected(node.id)"
             @change="event => setEmergencyNodeSelected(node.id, event.target.checked)">
             <span class="node-name">[[ node.name ]]</span>
             <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+            <a-tag v-for="tag in parseNodeTags(node)" :key="tag" class="ml-5" color="geekblue">[[ tag ]]</a-tag>
           </a-checkbox>
         </a-col>
       </a-row>
@@ -255,6 +276,13 @@
       width: 80
     },
     {
+      title: '标签',
+      scopedSlots: {
+        customRender: 'tags'
+      },
+      width: 180
+    },
+    {
       title: '复制',
       scopedSlots: {
         customRender: 'copyLink'
@@ -289,6 +317,9 @@
         upstreamId: null,
         upstreamName: '',
         nodes: [],
+        search: '',
+        tagInput: '',
+        selectedRowKeys: [],
       },
       emergencyModal: {
         visible: false,
@@ -297,14 +328,32 @@
         upstreamName: '',
         nodes: [],
         nodeIds: [],
+        search: '',
       },
     },
     computed: {
+      filteredNodeModalNodes() {
+        return this.filterNodes(this.nodeModal.nodes, this.nodeModal.search);
+      },
+      filteredEmergencyNodes() {
+        return this.filterNodes(this.emergencyModal.nodes, this.emergencyModal.search);
+      },
       nodeQuickTags() {
-        return this.buildNodeQuickTags(this.nodeModal.nodes);
+        return this.buildNodeQuickTags(this.filteredNodeModalNodes);
       },
       emergencyQuickTags() {
-        return this.buildNodeQuickTags(this.emergencyModal.nodes);
+        return this.buildNodeQuickTags(this.filteredEmergencyNodes);
+      },
+      nodeRowSelection() {
+        return {
+          selectedRowKeys: this.nodeModal.selectedRowKeys,
+          onChange: keys => {
+            this.nodeModal.selectedRowKeys = keys;
+          },
+        };
+      },
+      canUpdateSelectedTag() {
+        return this.nodeModal.selectedRowKeys.length > 0 && this.nodeModal.tagInput.trim().length > 0;
       },
     },
     methods: {
@@ -350,49 +399,62 @@
         this.nodeModal.upstreamId = record.id;
         this.nodeModal.upstreamName = record.name;
         this.nodeModal.nodes = Array.isArray(record.nodes) ? record.nodes : [];
+        this.nodeModal.search = '';
+        this.nodeModal.tagInput = '';
+        this.nodeModal.selectedRowKeys = [];
         this.nodeModal.visible = true;
+      },
+      parseNodeTags(node) {
+        if (!node) return [];
+        if (Array.isArray(node.tags)) {
+          return node.tags.map(tag => String(tag || '').trim()).filter(Boolean);
+        }
+        const raw = String(node.tags || '').trim();
+        if (!raw) return [];
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed.map(tag => String(tag || '').trim()).filter(Boolean);
+          }
+        } catch (e) {}
+        return raw.split(/[,\s，;；]+/).map(tag => tag.trim()).filter(Boolean);
+      },
+      normalizeNodeTag(tag) {
+        return String(tag || '').trim().replace(/^[#,，;；]+|[#,，;；]+$/g, '').slice(0, 32);
+      },
+      filterNodes(nodes, keyword) {
+        const source = Array.isArray(nodes) ? nodes : [];
+        const query = String(keyword || '').trim().toLowerCase();
+        if (!query) return source;
+        return source.filter(node => {
+          const haystack = [
+            node.name,
+            node.protocol,
+            node.sourceType,
+            node.upstreamName,
+            this.parseNodeTags(node).join(' '),
+          ].join(' ').toLowerCase();
+          return haystack.includes(query);
+        });
       },
       buildNodeQuickTags(nodes) {
         const source = Array.isArray(nodes) ? nodes : [];
-        const defs = [{
-          label: '香港',
-          words: ['香港', 'HK', 'Hong Kong', '🇭🇰']
-        }, {
-          label: '台湾',
-          words: ['台湾', 'TW', 'Taiwan', '🇹🇼']
-        }, {
-          label: '日本',
-          words: ['日本', 'JP', 'Japan', 'Tokyo', 'Osaka', '🇯🇵']
-        }, {
-          label: '新加坡',
-          words: ['新加坡', 'SG', 'Singapore', '狮城', '🇸🇬']
-        }, {
-          label: '美国',
-          words: ['美国', 'US', 'USA', 'United States', 'Los Angeles', 'LA', '🇺🇸']
-        }, {
-          label: '韩国',
-          words: ['韩国', 'KR', 'Korea', 'Seoul', '🇰🇷']
-        }, {
-          label: 'CN2',
-          words: ['CN2']
-        }, {
-          label: '直连',
-          words: ['直连', 'Direct']
-        }, {
-          label: 'IPLC',
-          words: ['IPLC']
-        }, {
-          label: 'IEPL',
-          words: ['IEPL']
-        }];
-        return defs.map(def => {
-          const nodeIds = source
-            .filter(node => def.words.some(word => String(node.name || '').toLowerCase().includes(String(word).toLowerCase())))
-            .map(node => node.id);
-          return Object.assign({}, def, {
-            nodeIds
-          });
-        }).filter(tag => tag.nodeIds.length > 0);
+        const tags = {};
+        for (const node of source) {
+          for (const tag of this.parseNodeTags(node)) {
+            const key = tag.toLowerCase();
+            if (!tags[key]) {
+              tags[key] = {
+                label: tag,
+                nodeIds: [],
+              };
+            }
+            tags[key].nodeIds.push(node.id);
+          }
+        }
+        return Object.keys(tags)
+          .map(key => tags[key])
+          .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
       },
       async batchToggleNodesByTag(tag, enable) {
         if (!tag || !tag.nodeIds || tag.nodeIds.length === 0) return;
@@ -409,11 +471,41 @@
           await this.loadAll();
         }
       },
+      async updateSelectedNodesTag(add) {
+        const tag = this.normalizeNodeTag(this.nodeModal.tagInput);
+        const nodeIds = this.nodeModal.selectedRowKeys.map(id => Number(id)).filter(id => id > 0);
+        if (!tag || nodeIds.length === 0) return;
+        const msg = await HttpUtil.post('/panel/api/subscription-market/nodes/batch-tags', {
+          nodeIds,
+          tag,
+          add
+        });
+        if (msg.success) {
+          const selected = new Set(nodeIds);
+          for (const node of this.nodeModal.nodes) {
+            if (!selected.has(node.id)) continue;
+            const tags = new Set(this.parseNodeTags(node));
+            if (add) {
+              tags.add(tag);
+            } else {
+              for (const item of Array.from(tags)) {
+                if (item.toLowerCase() === tag.toLowerCase()) {
+                  tags.delete(item);
+                }
+              }
+            }
+            node.tags = JSON.stringify(Array.from(tags));
+          }
+          this.nodeModal.tagInput = '';
+          await this.loadAll();
+        }
+      },
       async openEmergencyModal(record) {
         this.emergencyModal.upstreamId = record.id;
         this.emergencyModal.upstreamName = record.name;
         this.emergencyModal.nodes = Array.isArray(record.nodes) ? record.nodes : [];
         this.emergencyModal.nodeIds = this.emergencyModal.nodes.filter(node => node.emergency).map(node => node.id);
+        this.emergencyModal.search = '';
         this.emergencyModal.visible = true;
         const msg = await HttpUtil.get(`/panel/api/subscription-market/upstreams/${record.id}/emergency-nodes`);
         if (msg.success && Array.isArray(msg.obj)) {
@@ -583,21 +675,74 @@
     text-overflow: ellipsis;
   }
 
+  .node-filter-tools {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+
+  .node-search-input {
+    max-width: 340px;
+  }
+
+  .node-edit-tools {
+    flex-wrap: wrap;
+  }
+
+  .node-tag-input {
+    width: 180px;
+  }
+
   .node-tag-tools {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 10px;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(24, 144, 255, .22);
+    border-radius: 8px;
+    background: rgba(24, 144, 255, .07);
   }
 
   .tag-tools-label {
     font-weight: 600;
+    margin-right: 2px;
   }
 
   .quick-node-tag {
     margin-right: 0;
-    line-height: 24px;
+    line-height: 28px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .10);
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+
+  .quick-node-tag:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 12px rgba(24, 144, 255, .22);
+  }
+
+  .quick-node-tag a {
+    color: #fff !important;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .20);
+    transition: color .15s ease, background .15s ease, box-shadow .15s ease;
+  }
+
+  .quick-node-tag a:hover {
+    color: #096dd9 !important;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(24, 144, 255, .28);
+  }
+
+  .quick-node-tag .ant-divider {
+    background: rgba(255, 255, 255, .55);
   }
 
   .node-checkbox-group {

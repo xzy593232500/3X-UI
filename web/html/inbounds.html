@@ -397,7 +397,7 @@
                     </template>
                     <template slot="deviceLimit" slot-scope="text, dbInbound">
                       <span v-if="dbInbound.deviceLimit > 0">[[ dbInbound.deviceLimit ]]</span>
-                      <span v-else>{{ i18n "pages.inbounds.unlimited" }}</span>
+                      <span v-else>{{ i18n "unlimited" }}</span>
                     </template>
                     <template slot="traffic" slot-scope="text, dbInbound">
                       <a-popover :overlay-class-name="themeSwitcher.currentTheme">
@@ -463,7 +463,7 @@
                             fill="currentColor"></path>
                         </svg>
                       </a-tag>
-                      <a-button size="small" icon="plus-circle" class="ml-5"
+                      <a-button size="small" icon="plus-circle" class="ml-5 extend-expiry-trigger"
                         @click="openExtendExpiryModal(dbInbound)">增加时长</a-button>
                     </template>
                     <template slot="info" slot-scope="text, dbInbound">
@@ -591,7 +591,7 @@
                               <td>{{ i18n "pages.inbounds.deviceLimit" }}</td>
                               <td>
                                 <a-tag v-if="dbInbound.deviceLimit > 0">[[ dbInbound.deviceLimit ]]</a-tag>
-                                <a-tag v-else color="purple">{{ i18n "pages.inbounds.unlimited" }}</a-tag>
+                                <a-tag v-else color="purple">{{ i18n "unlimited" }}</a-tag>
                               </td>
                             </tr>
                             <tr>
@@ -699,14 +699,16 @@
       <a-alert type="info" show-icon message="选中的上游节点会追加到该入站下所有客户的订阅链接里。"
         class="mb-10"></a-alert>
       <a-space class="mb-10">
-        <a-button size="small" icon="check-square" @click="inboundUpstreamModal.nodeIds = upstreamNodes.map(node => node.id)">
+        <a-button size="small" icon="check-square" @click="inboundUpstreamModal.nodeIds = filteredUpstreamNodes.map(node => node.id)">
           全选
         </a-button>
         <a-button size="small" icon="minus-square" @click="inboundUpstreamModal.nodeIds = []">清空</a-button>
         <a-tag color="green">仅显示已启用的上游节点</a-tag>
       </a-space>
+      <a-input v-model="inboundUpstreamModal.search" allow-clear class="node-search-input mb-10"
+        placeholder="搜索节点、协议、订阅或标签"></a-input>
       <div class="node-tag-tools" v-if="upstreamQuickTags.length">
-        <span class="tag-tools-label">标签批量：</span>
+        <span class="tag-tools-label">自定义标签：</span>
         <a-tag v-for="tag in upstreamQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
           [[ tag.label ]] [[ tag.nodeIds.length ]]
           <a-divider type="vertical"></a-divider>
@@ -737,6 +739,7 @@
                   @change="event => setNodeSelected(inboundUpstreamModal, 'nodeIds', node.id, event.target.checked)">
                   <span class="node-name">[[ node.name ]]</span>
                   <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+                  <a-tag v-for="tag in parseNodeTags(node)" :key="tag" class="ml-5" color="geekblue">[[ tag ]]</a-tag>
                 </a-checkbox>
               </a-col>
             </a-row>
@@ -750,15 +753,15 @@
   <a-modal v-model="extendExpiryModal.visible" :title="'增加时长 - ' + extendExpiryModal.inboundRemark"
     :confirm-loading="extendExpiryModal.saving" :class="themeSwitcher.currentTheme" width="560px"
     @ok="submitExtendExpiry">
-    <a-form layout="vertical">
+    <a-form layout="vertical" class="extend-expiry-form">
       <a-form-item label="增加方式">
-        <a-radio-group v-model="extendExpiryModal.baseMode">
+        <a-radio-group v-model="extendExpiryModal.baseMode" button-style="solid" class="extend-radio-group">
           <a-radio-button value="current">以当前过期时间为基础</a-radio-button>
           <a-radio-button value="now">以现在真实时间为基础</a-radio-button>
         </a-radio-group>
       </a-form-item>
       <a-form-item label="增加时长">
-        <a-radio-group v-model="extendExpiryModal.durationPreset">
+        <a-radio-group v-model="extendExpiryModal.durationPreset" button-style="solid" class="extend-radio-group extend-duration-group">
           <a-radio-button value="1m">一个月</a-radio-button>
           <a-radio-button value="3m">三个月</a-radio-button>
           <a-radio-button value="6m">半年</a-radio-button>
@@ -1247,6 +1250,7 @@
         inboundId: null,
         inboundRemark: '',
         nodeIds: [],
+        search: '',
         activeGroupKeys: [],
       },
       extendExpiryModal: {
@@ -1378,6 +1382,7 @@
         this.inboundUpstreamModal.inboundId = dbInbound.id;
         this.inboundUpstreamModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
         this.inboundUpstreamModal.nodeIds = [];
+        this.inboundUpstreamModal.search = '';
         this.inboundUpstreamModal.activeGroupKeys = [];
         this.inboundUpstreamModal.loading = true;
         this.inboundUpstreamModal.visible = true;
@@ -1451,47 +1456,54 @@
         if (keys === undefined || keys === null || keys === '') return [];
         return [String(keys)];
       },
+      parseNodeTags(node) {
+        if (!node) return [];
+        if (Array.isArray(node.tags)) {
+          return node.tags.map(tag => String(tag || '').trim()).filter(Boolean);
+        }
+        const raw = String(node.tags || '').trim();
+        if (!raw) return [];
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            return parsed.map(tag => String(tag || '').trim()).filter(Boolean);
+          }
+        } catch (e) {}
+        return raw.split(/[,\s，;；]+/).map(tag => tag.trim()).filter(Boolean);
+      },
+      filterNodes(nodes, keyword) {
+        const source = Array.isArray(nodes) ? nodes : [];
+        const query = String(keyword || '').trim().toLowerCase();
+        if (!query) return source;
+        return source.filter(node => {
+          const haystack = [
+            node.name,
+            node.protocol,
+            node.sourceType,
+            node.upstreamName,
+            this.parseNodeTags(node).join(' '),
+          ].join(' ').toLowerCase();
+          return haystack.includes(query);
+        });
+      },
       buildNodeQuickTags(nodes) {
         const source = Array.isArray(nodes) ? nodes : [];
-        const defs = [{
-          label: '香港',
-          words: ['香港', 'HK', 'Hong Kong', '🇭🇰']
-        }, {
-          label: '台湾',
-          words: ['台湾', 'TW', 'Taiwan', '🇹🇼']
-        }, {
-          label: '日本',
-          words: ['日本', 'JP', 'Japan', 'Tokyo', 'Osaka', '🇯🇵']
-        }, {
-          label: '新加坡',
-          words: ['新加坡', 'SG', 'Singapore', '狮城', '🇸🇬']
-        }, {
-          label: '美国',
-          words: ['美国', 'US', 'USA', 'United States', 'Los Angeles', 'LA', '🇺🇸']
-        }, {
-          label: '韩国',
-          words: ['韩国', 'KR', 'Korea', 'Seoul', '🇰🇷']
-        }, {
-          label: 'CN2',
-          words: ['CN2']
-        }, {
-          label: '直连',
-          words: ['直连', 'Direct']
-        }, {
-          label: 'IPLC',
-          words: ['IPLC']
-        }, {
-          label: 'IEPL',
-          words: ['IEPL']
-        }];
-        return defs.map(def => {
-          const nodeIds = source
-            .filter(node => def.words.some(word => String(node.name || '').toLowerCase().includes(String(word).toLowerCase())))
-            .map(node => node.id);
-          return Object.assign({}, def, {
-            nodeIds
-          });
-        }).filter(tag => tag.nodeIds.length > 0);
+        const tags = {};
+        for (const node of source) {
+          for (const tag of this.parseNodeTags(node)) {
+            const key = tag.toLowerCase();
+            if (!tags[key]) {
+              tags[key] = {
+                label: tag,
+                nodeIds: [],
+              };
+            }
+            tags[key].nodeIds.push(node.id);
+          }
+        }
+        return Object.keys(tags)
+          .map(key => tags[key])
+          .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN'));
       },
       applyNodeTag(target, key, tag, checked) {
         const selected = new Set(Array.isArray(target[key]) ? target[key] : []);
@@ -1818,6 +1830,23 @@
           isEdit: true
         });
       },
+      buildInboundFormData(data) {
+        const formData = new FormData();
+        Object.keys(data).forEach(key => {
+          const value = data[key];
+          if (value === undefined || value === null) return;
+          if (typeof value === 'boolean') {
+            formData.append(key, value ? 'true' : 'false');
+            return;
+          }
+          if (typeof value === 'number' && Number.isNaN(value)) {
+            formData.append(key, '');
+            return;
+          }
+          formData.append(key, value);
+        });
+        return formData;
+      },
       async addInbound(inbound, dbInbound) {
         const existingIds = new Set(this.dbInbounds.map(row => Number(row.id)));
         const pendingVmessLink = this.getFirstVmessLinkFromInbound(inbound, dbInbound.remark);
@@ -1892,8 +1921,7 @@
         }
         data.sniffing = inbound.sniffing.toString();
 
-        const formData = new FormData();
-        Object.keys(data).forEach(key => formData.append(key, data[key]));
+        const formData = this.buildInboundFormData(data);
 
         await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
       },
@@ -2126,8 +2154,7 @@
         }
         data.sniffing = inbound.sniffing.toString();
 
-        const formData = new FormData();
-        Object.keys(data).forEach(key => formData.append(key, data[key]));
+        const formData = this.buildInboundFormData(data);
 
         this.submit(`/panel/api/inbounds/update/${dbInboundId}`, formData);
       },
@@ -2687,9 +2714,12 @@
           expiring: expiring,
         };
       },
+      filteredUpstreamNodes() {
+        return this.filterNodes(this.upstreamNodes, this.inboundUpstreamModal.search);
+      },
       groupedUpstreamNodes() {
         const map = {};
-        for (const node of this.upstreamNodes) {
+        for (const node of this.filteredUpstreamNodes) {
           const upstreamId = node.upstreamId || 0;
           if (!map[upstreamId]) {
             map[upstreamId] = {
@@ -2704,7 +2734,7 @@
         return Object.keys(map).map(key => map[key]);
       },
       upstreamQuickTags() {
-        return this.buildNodeQuickTags(this.upstreamNodes);
+        return this.buildNodeQuickTags(this.filteredUpstreamNodes);
       },
       previewExtendedExpiry() {
         const value = this.calculateExtendedExpiry();
@@ -2773,21 +2803,100 @@
     padding-right: 6px;
   }
 
+  .node-search-input {
+    max-width: 360px;
+  }
+
   .node-tag-tools {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px;
-    margin-bottom: 10px;
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 10px 12px;
+    border: 1px solid rgba(24, 144, 255, .22);
+    border-radius: 8px;
+    background: rgba(24, 144, 255, .07);
   }
 
   .tag-tools-label {
     font-weight: 600;
+    margin-right: 2px;
   }
 
   .quick-node-tag {
     margin-right: 0;
-    line-height: 24px;
+    line-height: 28px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .10);
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease;
+  }
+
+  .quick-node-tag:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 5px 12px rgba(24, 144, 255, .22);
+  }
+
+  .quick-node-tag a {
+    color: #fff !important;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: rgba(0, 0, 0, .20);
+    transition: color .15s ease, background .15s ease, box-shadow .15s ease;
+  }
+
+  .quick-node-tag a:hover {
+    color: #096dd9 !important;
+    background: #fff;
+    box-shadow: 0 2px 8px rgba(24, 144, 255, .28);
+  }
+
+  .quick-node-tag .ant-divider {
+    background: rgba(255, 255, 255, .55);
+  }
+
+  .extend-expiry-trigger {
+    font-weight: 600;
+    border-color: #1890ff;
+    color: #1890ff;
+    box-shadow: 0 2px 6px rgba(24, 144, 255, .18);
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
+  }
+
+  .extend-expiry-trigger:hover,
+  .extend-expiry-trigger:focus {
+    color: #fff;
+    background: #1890ff;
+    border-color: #1890ff;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(24, 144, 255, .30);
+  }
+
+  .extend-expiry-form .extend-radio-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .extend-expiry-form .ant-radio-button-wrapper {
+    border-radius: 8px !important;
+    border-left-width: 1px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+
+  .extend-expiry-form .ant-radio-button-wrapper:hover {
+    color: #1890ff;
+    border-color: #1890ff;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(24, 144, 255, .18);
+  }
+
+  .extend-expiry-form .ant-radio-button-wrapper-checked {
+    box-shadow: 0 5px 14px rgba(24, 144, 255, .24);
   }
 
   .node-collapse {
