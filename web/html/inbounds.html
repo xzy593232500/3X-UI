@@ -770,6 +770,12 @@
           <a-radio-button value="now">以现在真实时间为基础</a-radio-button>
         </a-radio-group>
       </a-form-item>
+      <a-form-item v-if="quickConfigModal.durationPreset !== 'none'" label="时长处理方式">
+        <a-radio-group v-model="quickConfigModal.durationMode" button-style="solid" class="quick-config-radio-group">
+          <a-radio-button value="add">增加</a-radio-button>
+          <a-radio-button value="subtract">减少</a-radio-button>
+        </a-radio-group>
+      </a-form-item>
       <a-form-item v-if="quickConfigModal.durationPreset === 'custom'" label="自由时长（天）">
         <a-input-number v-model="quickConfigModal.customDays" :min="1" :max="3650" class="w-100"></a-input-number>
       </a-form-item>
@@ -791,6 +797,7 @@
       <a-form-item v-if="quickConfigModal.trafficPreset !== 'none'" label="流量处理方式">
         <a-radio-group v-model="quickConfigModal.trafficMode" button-style="solid" class="quick-config-radio-group">
           <a-radio-button value="add">在当前总流量上增加</a-radio-button>
+          <a-radio-button value="subtract">从当前总流量中减少</a-radio-button>
           <a-radio-button value="reset">覆盖并重置已用流量</a-radio-button>
         </a-radio-group>
       </a-form-item>
@@ -1286,6 +1293,7 @@
         inboundId: null,
         inboundRemark: '',
         baseMode: 'current',
+        durationMode: 'add',
         durationPreset: 'none',
         customDays: 30,
         trafficMode: 'add',
@@ -1921,6 +1929,7 @@
         }
       },
       async updateInbound(inbound, dbInbound) {
+        const expectedEmergency = !!dbInbound.emergencyEnable;
         const data = {
           up: dbInbound.up,
           down: dbInbound.down,
@@ -1929,7 +1938,6 @@
           enable: dbInbound.enable,
           expiryTime: dbInbound.expiryTime,
           deviceLimit: dbInbound.deviceLimit,
-          emergencyEnable: dbInbound.emergencyEnable,
           trafficReset: dbInbound.trafficReset,
           lastTrafficResetTime: dbInbound.lastTrafficResetTime,
           socksProxyEnabled: dbInbound.socksProxyEnabled,
@@ -1954,7 +1962,11 @@
 
         const formData = this.buildInboundFormData(data);
 
-        return await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
+        const msg = await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
+        if (msg.success) {
+          await this.restoreInboundEmergencyState(dbInbound.id, expectedEmergency);
+        }
+        return msg;
       },
       openAddClient(dbInboundId) {
         dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
@@ -2149,9 +2161,10 @@
         newDbInbound = this.checkFallback(dbInbound);
         infoModal.show(newDbInbound, index);
       },
-      switchEnable(dbInboundId, state) {
+      async switchEnable(dbInboundId, state) {
         let dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
         if (!dbInbound) return;
+        const expectedEmergency = !!dbInbound.emergencyEnable;
         dbInbound.enable = state;
         let inbound = dbInbound.toInbound();
         const data = {
@@ -2162,7 +2175,6 @@
           enable: dbInbound.enable,
           expiryTime: dbInbound.expiryTime,
           deviceLimit: dbInbound.deviceLimit,
-          emergencyEnable: dbInbound.emergencyEnable,
           trafficReset: dbInbound.trafficReset,
           lastTrafficResetTime: dbInbound.lastTrafficResetTime,
           socksProxyEnabled: dbInbound.socksProxyEnabled,
@@ -2187,7 +2199,10 @@
 
         const formData = this.buildInboundFormData(data);
 
-        this.submit(`/panel/api/inbounds/update/${dbInboundId}`, formData);
+        const msg = await this.submit(`/panel/api/inbounds/update/${dbInboundId}`, formData);
+        if (msg.success) {
+          await this.restoreInboundEmergencyState(dbInboundId, expectedEmergency);
+        }
       },
       async toggleInboundEmergency(dbInbound, checked) {
         const previous = !checked;
@@ -2199,11 +2214,25 @@
           dbInbound.emergencyEnable = previous;
         }
       },
+      async restoreInboundEmergencyState(inboundId, expected) {
+        const current = this.dbInbounds.find(row => row.id === inboundId);
+        if (current) {
+          current.emergencyEnable = expected;
+        }
+        try {
+          await axios.post(`/panel/api/subscription-market/inbounds/${inboundId}/emergency`, {
+            enable: expected
+          });
+        } catch (error) {
+          console.error('Failed to restore inbound emergency state:', error);
+        }
+      },
       openQuickConfigModal(dbInbound) {
         if (!dbInbound) return;
         this.quickConfigModal.inboundId = dbInbound.id;
         this.quickConfigModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
         this.quickConfigModal.baseMode = dbInbound.expiryTime > 0 ? 'current' : 'now';
+        this.quickConfigModal.durationMode = 'add';
         this.quickConfigModal.durationPreset = 'none';
         this.quickConfigModal.customDays = 30;
         this.quickConfigModal.trafficMode = 'add';
@@ -2220,21 +2249,22 @@
         const now = Date.now();
         let base = modal.baseMode === 'current' && dbInbound.expiryTime > 0 ? Number(dbInbound.expiryTime) : now;
         let result = moment(base);
+        const action = modal.durationMode === 'subtract' ? 'subtract' : 'add';
         switch (modal.durationPreset) {
           case '1m':
-            result = result.add(1, 'month');
+            result = result[action](1, 'month');
             break;
           case '3m':
-            result = result.add(3, 'month');
+            result = result[action](3, 'month');
             break;
           case '6m':
-            result = result.add(6, 'month');
+            result = result[action](6, 'month');
             break;
           case '1y':
-            result = result.add(1, 'year');
+            result = result[action](1, 'year');
             break;
           case 'custom':
-            result = result.add(Number(modal.customDays || 1), 'day');
+            result = result[action](Number(modal.customDays || 1), 'day');
             break;
         }
         return result.valueOf();
@@ -2262,10 +2292,15 @@
         const bytes = this.quickTrafficBytes();
         if (bytes === null) return null;
         if (bytes === 0) return 0;
-        if (this.quickConfigModal.trafficMode === 'add') {
-          return Math.max(0, Number(dbInbound.total || 0)) + bytes;
+        const current = Math.max(0, Number(dbInbound.total || 0));
+        if (this.quickConfigModal.trafficMode === 'subtract') {
+          if (current <= 0) return 1;
+          return Math.max(1, current - bytes);
         }
-        return bytes;
+        if (this.quickConfigModal.trafficMode === 'reset') {
+          return bytes;
+        }
+        return current + bytes;
       },
       calculateQuickDeviceLimit(dbInbound) {
         const current = Math.max(1, Number(dbInbound.deviceLimit || 1));
@@ -2841,11 +2876,17 @@
         if (!dbInbound) return '-';
         const expiry = this.quickConfigModal.durationPreset === 'none' ?
           '不调整' :
-          (this.calculateQuickExpiry() > 0 ? IntlUtil.formatDate(this.calculateQuickExpiry()) : '无限');
+          `${this.quickConfigModal.durationMode === 'subtract' ? '减少后为' : '增加后为'} ${
+            this.calculateQuickExpiry() > 0 ? IntlUtil.formatDate(this.calculateQuickExpiry()) : '无限'
+          }`;
         const trafficTotal = this.calculateQuickTrafficTotal(dbInbound);
         let traffic = '不调整';
         if (trafficTotal !== null) {
-          const mode = this.quickConfigModal.trafficMode === 'reset' ? '覆盖重置为' : '增加后为';
+          const mode = this.quickConfigModal.trafficPreset === 'unlimited' ?
+            '设为' :
+            (this.quickConfigModal.trafficMode === 'reset' ?
+              '覆盖重置为' :
+              (this.quickConfigModal.trafficMode === 'subtract' ? '减少后为' : '增加后为'));
           traffic = `${mode} ${this.formatTrafficLimit(trafficTotal)}`;
         }
         const deviceLimit = this.calculateQuickDeviceLimit(dbInbound);
