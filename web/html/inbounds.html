@@ -463,8 +463,8 @@
                             fill="currentColor"></path>
                         </svg>
                       </a-tag>
-                      <a-button size="small" icon="plus-circle" class="ml-5 extend-expiry-trigger"
-                        @click="openExtendExpiryModal(dbInbound)">增加时长</a-button>
+                      <a-button size="small" icon="setting" class="ml-5 quick-config-trigger"
+                        @click="openQuickConfigModal(dbInbound)">快速配置</a-button>
                     </template>
                     <template slot="info" slot-scope="text, dbInbound">
                       <a-popover placement="bottomRight" :overlay-class-name="themeSwitcher.currentTheme"
@@ -750,18 +750,13 @@
     </a-spin>
   </a-modal>
 
-  <a-modal v-model="extendExpiryModal.visible" :title="'增加时长 - ' + extendExpiryModal.inboundRemark"
-    :confirm-loading="extendExpiryModal.saving" :class="themeSwitcher.currentTheme" width="560px"
-    @ok="submitExtendExpiry">
-    <a-form layout="vertical" class="extend-expiry-form">
-      <a-form-item label="增加方式">
-        <a-radio-group v-model="extendExpiryModal.baseMode" button-style="solid" class="extend-radio-group">
-          <a-radio-button value="current">以当前过期时间为基础</a-radio-button>
-          <a-radio-button value="now">以现在真实时间为基础</a-radio-button>
-        </a-radio-group>
-      </a-form-item>
+  <a-modal v-model="quickConfigModal.visible" :title="'快速配置 - ' + quickConfigModal.inboundRemark"
+    :confirm-loading="quickConfigModal.saving" :class="themeSwitcher.currentTheme" width="680px"
+    @ok="submitQuickConfig">
+    <a-form layout="vertical" class="quick-config-form">
       <a-form-item label="增加时长">
-        <a-radio-group v-model="extendExpiryModal.durationPreset" button-style="solid" class="extend-radio-group extend-duration-group">
+        <a-radio-group v-model="quickConfigModal.durationPreset" button-style="solid" class="quick-config-radio-group">
+          <a-radio-button value="none">不调整</a-radio-button>
           <a-radio-button value="1m">一个月</a-radio-button>
           <a-radio-button value="3m">三个月</a-radio-button>
           <a-radio-button value="6m">半年</a-radio-button>
@@ -769,10 +764,41 @@
           <a-radio-button value="custom">自由时长</a-radio-button>
         </a-radio-group>
       </a-form-item>
-      <a-form-item v-if="extendExpiryModal.durationPreset === 'custom'" label="自由时长（天）">
-        <a-input-number v-model="extendExpiryModal.customDays" :min="1" :max="3650" class="w-100"></a-input-number>
+      <a-form-item v-if="quickConfigModal.durationPreset !== 'none'" label="时长计算方式">
+        <a-radio-group v-model="quickConfigModal.baseMode" button-style="solid" class="quick-config-radio-group">
+          <a-radio-button value="current">以当前过期时间为基础</a-radio-button>
+          <a-radio-button value="now">以现在真实时间为基础</a-radio-button>
+        </a-radio-group>
       </a-form-item>
-      <a-alert type="info" show-icon :message="'新的到期时间：' + previewExtendedExpiry"></a-alert>
+      <a-form-item v-if="quickConfigModal.durationPreset === 'custom'" label="自由时长（天）">
+        <a-input-number v-model="quickConfigModal.customDays" :min="1" :max="3650" class="w-100"></a-input-number>
+      </a-form-item>
+      <a-divider orientation="left">流量配置</a-divider>
+      <a-form-item label="流量处理方式">
+        <a-radio-group v-model="quickConfigModal.trafficMode" button-style="solid" class="quick-config-radio-group">
+          <a-radio-button value="add">在当前总流量上增加</a-radio-button>
+          <a-radio-button value="reset">覆盖并重置已用流量</a-radio-button>
+        </a-radio-group>
+      </a-form-item>
+      <a-form-item label="流量额度">
+        <a-radio-group v-model="quickConfigModal.trafficPreset" button-style="solid" class="quick-config-radio-group">
+          <a-radio-button value="none">不调整</a-radio-button>
+          <a-radio-button value="100g">100G</a-radio-button>
+          <a-radio-button value="200g">200G</a-radio-button>
+          <a-radio-button value="500g">500G</a-radio-button>
+          <a-radio-button value="1t">1T</a-radio-button>
+          <a-radio-button value="unlimited">无限</a-radio-button>
+          <a-radio-button value="custom">自定义</a-radio-button>
+        </a-radio-group>
+      </a-form-item>
+      <a-form-item v-if="quickConfigModal.trafficPreset === 'custom'" label="自定义流量（GB）">
+        <a-input-number v-model="quickConfigModal.customTrafficGb" :min="1" :max="1048576" class="w-100"></a-input-number>
+      </a-form-item>
+      <a-divider orientation="left">设备限制</a-divider>
+      <a-form-item label="增加设备限制数量">
+        <a-input-number v-model="quickConfigModal.deviceLimitAdd" :min="0" :max="9999" class="w-100"></a-input-number>
+      </a-form-item>
+      <a-alert type="info" show-icon :message="quickConfigPreview"></a-alert>
     </a-form>
   </a-modal>
 </a-layout>
@@ -1253,14 +1279,18 @@
         search: '',
         activeGroupKeys: [],
       },
-      extendExpiryModal: {
+      quickConfigModal: {
         visible: false,
         saving: false,
         inboundId: null,
         inboundRemark: '',
         baseMode: 'current',
-        durationPreset: '1m',
+        durationPreset: 'none',
         customDays: 30,
+        trafficMode: 'add',
+        trafficPreset: 'none',
+        customTrafficGb: 100,
+        deviceLimitAdd: 0,
       },
       isRefreshEnabled: localStorage.getItem("isRefreshEnabled") === "true" ? true : false,
       refreshing: false,
@@ -1923,7 +1953,7 @@
 
         const formData = this.buildInboundFormData(data);
 
-        await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
+        return await this.submit(`/panel/api/inbounds/update/${dbInbound.id}`, formData, inModal);
       },
       openAddClient(dbInboundId) {
         dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
@@ -2168,19 +2198,24 @@
           dbInbound.emergencyEnable = previous;
         }
       },
-      openExtendExpiryModal(dbInbound) {
+      openQuickConfigModal(dbInbound) {
         if (!dbInbound) return;
-        this.extendExpiryModal.inboundId = dbInbound.id;
-        this.extendExpiryModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
-        this.extendExpiryModal.baseMode = dbInbound.expiryTime > 0 ? 'current' : 'now';
-        this.extendExpiryModal.durationPreset = '1m';
-        this.extendExpiryModal.customDays = 30;
-        this.extendExpiryModal.visible = true;
+        this.quickConfigModal.inboundId = dbInbound.id;
+        this.quickConfigModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
+        this.quickConfigModal.baseMode = dbInbound.expiryTime > 0 ? 'current' : 'now';
+        this.quickConfigModal.durationPreset = 'none';
+        this.quickConfigModal.customDays = 30;
+        this.quickConfigModal.trafficMode = 'add';
+        this.quickConfigModal.trafficPreset = 'none';
+        this.quickConfigModal.customTrafficGb = 100;
+        this.quickConfigModal.deviceLimitAdd = 0;
+        this.quickConfigModal.visible = true;
       },
-      calculateExtendedExpiry() {
-        const modal = this.extendExpiryModal;
+      calculateQuickExpiry() {
+        const modal = this.quickConfigModal;
         const dbInbound = this.dbInbounds.find(row => row.id === modal.inboundId);
         if (!dbInbound) return 0;
+        if (modal.durationPreset === 'none') return Number(dbInbound.expiryTime || 0);
         const now = Date.now();
         let base = modal.baseMode === 'current' && dbInbound.expiryTime > 0 ? Number(dbInbound.expiryTime) : now;
         let result = moment(base);
@@ -2203,17 +2238,81 @@
         }
         return result.valueOf();
       },
-      async submitExtendExpiry() {
-        const dbInbound = this.dbInbounds.find(row => row.id === this.extendExpiryModal.inboundId);
+      quickTrafficBytes() {
+        const modal = this.quickConfigModal;
+        switch (modal.trafficPreset) {
+          case '100g':
+            return 100 * SizeFormatter.ONE_GB;
+          case '200g':
+            return 200 * SizeFormatter.ONE_GB;
+          case '500g':
+            return 500 * SizeFormatter.ONE_GB;
+          case '1t':
+            return SizeFormatter.ONE_TB;
+          case 'unlimited':
+            return 0;
+          case 'custom':
+            return Math.max(1, Number(modal.customTrafficGb || 1)) * SizeFormatter.ONE_GB;
+          default:
+            return null;
+        }
+      },
+      calculateQuickTrafficTotal(dbInbound) {
+        const bytes = this.quickTrafficBytes();
+        if (bytes === null) return null;
+        if (bytes === 0) return 0;
+        if (this.quickConfigModal.trafficMode === 'add') {
+          return Math.max(0, Number(dbInbound.total || 0)) + bytes;
+        }
+        return bytes;
+      },
+      calculateQuickDeviceLimit(dbInbound) {
+        const add = Math.max(0, Number(this.quickConfigModal.deviceLimitAdd || 0));
+        if (add <= 0) return Number(dbInbound.deviceLimit || 0);
+        return Math.max(0, Number(dbInbound.deviceLimit || 0)) + add;
+      },
+      formatTrafficLimit(value) {
+        return Number(value || 0) > 0 ? SizeFormatter.sizeFormat(Number(value || 0)) : '无限';
+      },
+      async submitQuickConfig() {
+        const dbInbound = this.dbInbounds.find(row => row.id === this.quickConfigModal.inboundId);
         if (!dbInbound) return;
-        this.extendExpiryModal.saving = true;
+        this.quickConfigModal.saving = true;
+        const previous = {
+          expiryTime: dbInbound.expiryTime,
+          total: dbInbound.total,
+          up: dbInbound.up,
+          down: dbInbound.down,
+          deviceLimit: dbInbound.deviceLimit,
+        };
         try {
           const inbound = dbInbound.toInbound();
-          dbInbound.expiryTime = this.calculateExtendedExpiry();
-          await this.updateInbound(inbound, dbInbound);
-          this.extendExpiryModal.visible = false;
+          const trafficTotal = this.calculateQuickTrafficTotal(dbInbound);
+          const deviceAdd = Math.max(0, Number(this.quickConfigModal.deviceLimitAdd || 0));
+          const hasChanges = this.quickConfigModal.durationPreset !== 'none' || trafficTotal !== null || deviceAdd > 0;
+          if (!hasChanges) {
+            this.quickConfigModal.visible = false;
+            return;
+          }
+          if (this.quickConfigModal.durationPreset !== 'none') {
+            dbInbound.expiryTime = this.calculateQuickExpiry();
+          }
+          if (trafficTotal !== null) {
+            dbInbound.total = trafficTotal;
+            if (this.quickConfigModal.trafficMode === 'reset') {
+              dbInbound.up = 0;
+              dbInbound.down = 0;
+            }
+          }
+          dbInbound.deviceLimit = this.calculateQuickDeviceLimit(dbInbound);
+          const msg = await this.updateInbound(inbound, dbInbound);
+          if (msg && msg.success) {
+            this.quickConfigModal.visible = false;
+          } else {
+            Object.assign(dbInbound, previous);
+          }
         } finally {
-          this.extendExpiryModal.saving = false;
+          this.quickConfigModal.saving = false;
         }
       },
       async switchEnableClient(dbInboundId, client, state) {
@@ -2736,9 +2835,23 @@
       upstreamQuickTags() {
         return this.buildNodeQuickTags(this.filteredUpstreamNodes);
       },
-      previewExtendedExpiry() {
-        const value = this.calculateExtendedExpiry();
-        return value > 0 ? IntlUtil.formatDate(value) : '-';
+      quickConfigPreview() {
+        const dbInbound = this.dbInbounds.find(row => row.id === this.quickConfigModal.inboundId);
+        if (!dbInbound) return '-';
+        const expiry = this.quickConfigModal.durationPreset === 'none' ?
+          '不调整' :
+          (this.calculateQuickExpiry() > 0 ? IntlUtil.formatDate(this.calculateQuickExpiry()) : '无限');
+        const trafficTotal = this.calculateQuickTrafficTotal(dbInbound);
+        let traffic = '不调整';
+        if (trafficTotal !== null) {
+          const mode = this.quickConfigModal.trafficMode === 'reset' ? '覆盖重置为' : '增加后为';
+          traffic = `${mode} ${this.formatTrafficLimit(trafficTotal)}`;
+        }
+        const deviceLimit = this.calculateQuickDeviceLimit(dbInbound);
+        const device = Number(this.quickConfigModal.deviceLimitAdd || 0) > 0 ?
+          `${deviceLimit} 台` :
+          '不调整';
+        return `到期：${expiry}；流量：${traffic}；设备限制：${device}`;
       }
     },
   });
@@ -2857,7 +2970,7 @@
     background: rgba(255, 255, 255, .55);
   }
 
-  .extend-expiry-trigger {
+  .quick-config-trigger {
     font-weight: 600;
     border-color: #1890ff;
     color: #1890ff;
@@ -2865,8 +2978,8 @@
     transition: transform .15s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
   }
 
-  .extend-expiry-trigger:hover,
-  .extend-expiry-trigger:focus {
+  .quick-config-trigger:hover,
+  .quick-config-trigger:focus {
     color: #fff;
     background: #1890ff;
     border-color: #1890ff;
@@ -2874,13 +2987,13 @@
     box-shadow: 0 6px 14px rgba(24, 144, 255, .30);
   }
 
-  .extend-expiry-form .extend-radio-group {
+  .quick-config-form .quick-config-radio-group {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
   }
 
-  .extend-expiry-form .ant-radio-button-wrapper {
+  .quick-config-form .ant-radio-button-wrapper {
     border-radius: 8px !important;
     border-left-width: 1px;
     font-weight: 600;
@@ -2888,14 +3001,14 @@
     transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
   }
 
-  .extend-expiry-form .ant-radio-button-wrapper:hover {
+  .quick-config-form .ant-radio-button-wrapper:hover {
     color: #1890ff;
     border-color: #1890ff;
     transform: translateY(-1px);
     box-shadow: 0 4px 12px rgba(24, 144, 255, .18);
   }
 
-  .extend-expiry-form .ant-radio-button-wrapper-checked {
+  .quick-config-form .ant-radio-button-wrapper-checked {
     box-shadow: 0 5px 14px rgba(24, 144, 255, .24);
   }
 
