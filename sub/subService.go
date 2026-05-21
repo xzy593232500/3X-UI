@@ -126,7 +126,23 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 		}
 	}
 	traffic.Enable = hasEnabledClient
+	if infoNode := service.BuildSubscriptionExpiryInfoNode(subscriptionExpiryFromClientTraffics(clientTraffics)); infoNode != "" {
+		result = append([]string{infoNode}, result...)
+	}
 	return result, lastOnline, traffic, nil
+}
+
+func subscriptionExpiryFromClientTraffics(clientTraffics []xray.ClientTraffic) int64 {
+	var expiryTime int64
+	for _, clientTraffic := range clientTraffics {
+		if clientTraffic.ExpiryTime <= 0 {
+			continue
+		}
+		if expiryTime == 0 || clientTraffic.ExpiryTime < expiryTime {
+			expiryTime = clientTraffic.ExpiryTime
+		}
+	}
+	return expiryTime
 }
 
 func (s *SubService) resolveNodeHost(requestHost string) string {

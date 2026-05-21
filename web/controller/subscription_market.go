@@ -371,7 +371,8 @@ func (a *CustomerSubscriptionPublicController) customerSubscription(c *gin.Conte
 		writeCustomerSubscriptionError(c, service.ErrCustomerNoURIEnabledNodes)
 		return
 	}
-	result := strings.Join(content.Links, "\n") + "\n"
+	links := append([]string{service.BuildSubscriptionExpiryInfoNode(content.Customer.ExpiryTime)}, content.Links...)
+	result := strings.Join(links, "\n") + "\n"
 	if wantsPlainCustomerSubscription(c) {
 		c.String(http.StatusOK, result)
 		return

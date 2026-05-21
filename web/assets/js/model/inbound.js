@@ -1503,11 +1503,8 @@ class Sniffing extends XrayCommonClass {
 }
 
 class Inbound extends XrayCommonClass {
-    static randomPort(protocol = '') {
-        if (protocol === Protocols.HYSTERIA) {
-            return RandomUtil.randomInteger(10000, 19999);
-        }
-        return RandomUtil.randomInteger(10000, 60000);
+    static randomPort() {
+        return RandomUtil.randomInteger(10000, 19999);
     }
 
     constructor(

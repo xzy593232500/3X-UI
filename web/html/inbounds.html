@@ -814,7 +814,7 @@
 <script src="{{ .base_path }}assets/qrcode/qrious2.min.js?{{ .cur_ver }}"></script>
 <script src="{{ .base_path }}assets/uri/URI.min.js?{{ .cur_ver }}"></script>
 <script src="{{ .base_path }}assets/js/model/reality_targets.js?{{ .cur_ver }}"></script>
-<script src="{{ .base_path }}assets/js/model/inbound.js?{{ .cur_ver }}"></script>
+<script src="{{ .base_path }}assets/js/model/inbound.js?{{ .cur_ver }}-jbhd-port-1"></script>
 <script src="{{ .base_path }}assets/js/model/dbinbound.js?{{ .cur_ver }}-jbhd-emergency-2"></script>
 {{template "component/aSidebar" .}}
 {{template "component/aThemeSwitch" .}}
@@ -1835,7 +1835,7 @@
           socksProxyPassword: dbInbound.socksProxyPassword,
 
           listen: '',
-          port: Inbound.randomPort(baseInbound.protocol),
+          port: this.randomInboundPort(),
           protocol: baseInbound.protocol,
           settings: Inbound.Settings.getSettings(baseInbound.protocol).toString(),
           streamSettings: baseInbound.stream.toString(),
@@ -1853,6 +1853,9 @@
           },
           isEdit: false
         });
+      },
+      randomInboundPort() {
+        return RandomUtil.randomInteger(10000, 19999);
       },
       openEditInbound(dbInboundId) {
         dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);

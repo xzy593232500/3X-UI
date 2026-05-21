@@ -23,6 +23,7 @@ import (
 )
 
 const upstreamFetchTimeout = 20 * time.Second
+const subscriptionInfoNodeUUID = "00000000-0000-0000-0000-000000000000"
 
 var upstreamFetchUserAgents = []string{
 	"v2rayN/7.0",
@@ -110,6 +111,41 @@ type upstreamTrafficInfo struct {
 	Download   int64
 	Total      int64
 	ExpiryTime int64
+}
+
+func BuildSubscriptionExpiryInfoNode(expiryTime int64) string {
+	remark := subscriptionExpiryInfoRemark(expiryTime)
+	obj := map[string]any{
+		"v":    "2",
+		"ps":   remark,
+		"add":  "127.0.0.1",
+		"port": 9,
+		"id":   subscriptionInfoNodeUUID,
+		"aid":  "0",
+		"scy":  "auto",
+		"net":  "tcp",
+		"type": "none",
+		"host": "",
+		"path": "",
+		"tls":  "",
+	}
+	encoded, _ := json.Marshal(obj)
+	return "vmess://" + base64.StdEncoding.EncodeToString(encoded)
+}
+
+func subscriptionExpiryInfoRemark(expiryTime int64) string {
+	if expiryTime <= 0 {
+		return "订阅到期: 永久有效"
+	}
+	expireAt := time.UnixMilli(expiryTime).In(time.FixedZone("CST", 8*3600))
+	dateText := expireAt.Format("2006-01-02 15:04")
+	remaining := expiryTime - time.Now().UnixMilli()
+	if remaining <= 0 {
+		return fmt.Sprintf("订阅到期: %s | 已过期", dateText)
+	}
+	const dayMs int64 = 24 * 60 * 60 * 1000
+	days := (remaining + dayMs - 1) / dayMs
+	return fmt.Sprintf("订阅到期: %s | %d天", dateText, days)
 }
 
 func (s *SubscriptionMarketService) GetUpstreams() ([]model.UpstreamSubscription, error) {
@@ -1611,6 +1647,9 @@ func isSubscriptionInfoNodeName(name string) bool {
 		return false
 	}
 	infoPrefixes := []string{
+		"订阅到期",
+		"subscription expiry",
+		"subscription expire",
 		"剩余流量",
 		"剩余容量",
 		"流量剩余",
