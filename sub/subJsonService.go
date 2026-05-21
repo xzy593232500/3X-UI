@@ -87,6 +87,7 @@ func NewSubJsonService(fragment string, noises string, mux string, rules string,
 
 // GetJson generates a JSON subscription configuration for the given subscription ID and host.
 func (s *SubJsonService) GetJson(subId string, host string) (string, string, error) {
+	host = s.SubService.resolveNodeHost(host)
 	inbounds, err := s.SubService.getInboundsBySubId(subId)
 	if err != nil || len(inbounds) == 0 {
 		return "", "", err

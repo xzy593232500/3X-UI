@@ -29,6 +29,7 @@ func NewSubClashService(subService *SubService) *SubClashService {
 }
 
 func (s *SubClashService) GetClash(subId string, host string) (string, string, error) {
+	host = s.SubService.resolveNodeHost(host)
 	inbounds, err := s.SubService.getInboundsBySubId(subId)
 	if err != nil || len(inbounds) == 0 {
 		return "", "", err

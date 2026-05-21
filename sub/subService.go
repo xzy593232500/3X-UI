@@ -42,7 +42,7 @@ func NewSubService(showInfo bool, remarkModel string) *SubService {
 
 // GetSubs retrieves subscription links for a given subscription ID and host.
 func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.ClientTraffic, error) {
-	s.address = host
+	s.address = s.resolveNodeHost(host)
 	var result []string
 	var traffic xray.ClientTraffic
 	var lastOnline int64
@@ -127,6 +127,36 @@ func (s *SubService) GetSubs(subId string, host string) ([]string, int64, xray.C
 	}
 	traffic.Enable = hasEnabledClient
 	return result, lastOnline, traffic, nil
+}
+
+func (s *SubService) resolveNodeHost(requestHost string) string {
+	if webDomain, err := s.settingService.GetWebDomain(); err == nil {
+		if host := normalizeHostOnly(webDomain); host != "" {
+			return host
+		}
+	}
+	if subDomain, err := s.settingService.GetSubDomain(); err == nil {
+		if host := normalizeHostOnly(subDomain); host != "" {
+			return host
+		}
+	}
+	return normalizeHostOnly(requestHost)
+}
+
+func normalizeHostOnly(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if strings.Contains(value, "://") {
+		if u, err := url.Parse(value); err == nil && u.Host != "" {
+			value = u.Host
+		}
+	}
+	if host, _, err := net.SplitHostPort(value); err == nil && host != "" {
+		return strings.Trim(host, "[]")
+	}
+	return strings.Trim(value, "[]")
 }
 
 func (s *SubService) getInboundsBySubId(subId string) ([]*model.Inbound, error) {
