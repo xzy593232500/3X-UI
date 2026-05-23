@@ -760,15 +760,30 @@
         <a-button size="small" icon="check-square" @click="selectAllInboundEmergencyUpstreams">全选可用配置</a-button>
         <a-button size="small" icon="minus-square" @click="inboundEmergencyModal.configIds = []">清空</a-button>
       </a-space>
-      <div class="emergency-upstream-list" v-if="inboundEmergencyUpstreamOptions.length">
-        <a-checkbox v-for="config in inboundEmergencyUpstreamOptions" :key="config.id"
-          :checked="isInboundEmergencyUpstreamSelected(config.id)"
-          @change="event => setInboundEmergencyUpstreamSelected(config.id, event.target.checked)">
-          <span class="node-name">[[ config.name ]]</span>
-          <a-tag class="ml-5" color="geekblue">[[ config.upstreamName ]]</a-tag>
-          <a-tag class="ml-5" :color="config.enable ? 'green' : 'red'">[[ config.enable ? '启用' : '关闭' ]]</a-tag>
-          <a-tag class="ml-5" color="blue">节点 [[ config.nodeCount ]]</a-tag>
-        </a-checkbox>
+      <div class="emergency-upstream-list" v-if="groupedInboundEmergencyConfigs.length">
+        <a-collapse v-model="inboundEmergencyModal.activeUpstreamKeys"
+          :bordered="false" :class="themeSwitcher.currentTheme">
+          <a-collapse-panel v-for="group in groupedInboundEmergencyConfigs" :key="group.key">
+            <template slot="header">
+              <span class="node-name">[[ group.upstreamName ]]</span>
+              <a-tag class="ml-5" :color="group.enable ? 'green' : 'red'">[[ group.enable ? '启用' : '关闭' ]]</a-tag>
+              <a-tag class="ml-5" color="blue">配置 [[ group.configs.length ]]</a-tag>
+              <a-tag class="ml-5" color="geekblue">已选 [[ selectedInboundEmergencyCount(group.configs) ]]</a-tag>
+            </template>
+            <a-space class="mb-10">
+              <a-button size="small" icon="check-square" @click.stop="selectInboundEmergencyGroup(group, true)">选择本组</a-button>
+              <a-button size="small" icon="minus-square" @click.stop="selectInboundEmergencyGroup(group, false)">取消本组</a-button>
+            </a-space>
+            <div class="emergency-config-list">
+              <a-checkbox v-for="config in group.configs" :key="config.id"
+                :checked="isInboundEmergencyUpstreamSelected(config.id)"
+                @change="event => setInboundEmergencyUpstreamSelected(config.id, event.target.checked)">
+                <span class="node-name">[[ config.name ]]</span>
+                <a-tag class="ml-5" color="blue">节点 [[ config.nodeCount ]]</a-tag>
+              </a-checkbox>
+            </div>
+          </a-collapse-panel>
+        </a-collapse>
       </div>
       <a-empty v-else description="暂无节点配置"></a-empty>
     </a-spin>
@@ -851,7 +866,7 @@
 {{template "modals/inboundInfoModal" .}}
 {{template "modals/clientsModal" .}}
 {{template "modals/clientsBulkModal" .}}
-<a-modal id="copy-clients-modal" :title="copyClientsModal.title" :visible="copyClientsModal.visible"
+<a-modal id="copy-clients-modal" v-cloak :title="copyClientsModal.title" :visible="copyClientsModal.visible"
   :confirm-loading="copyClientsModal.confirmLoading" ok-text='{{ i18n "pages.client.copySelected" }}'
   cancel-text='{{ i18n "close" }}' :class="themeSwitcher.currentTheme" :closable="true" :mask-closable="false"
   @ok="() => copyClientsModal.ok()" @cancel="() => copyClientsModal.close()" width="900px">
@@ -1319,6 +1334,7 @@
         inboundRemark: '',
         configs: [],
         configIds: [],
+        activeUpstreamKeys: [],
       },
       quickConfigModal: {
         visible: false,
@@ -1490,12 +1506,14 @@
         this.inboundEmergencyModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
         this.inboundEmergencyModal.configs = [];
         this.inboundEmergencyModal.configIds = [];
+        this.inboundEmergencyModal.activeUpstreamKeys = [];
         this.inboundEmergencyModal.loading = true;
         this.inboundEmergencyModal.visible = true;
         try {
           const configMsg = await HttpUtil.get('/panel/api/subscription-market/node-configs/list');
           if (configMsg.success && Array.isArray(configMsg.obj)) {
             this.inboundEmergencyModal.configs = configMsg.obj;
+            this.inboundEmergencyModal.activeUpstreamKeys = this.buildInboundEmergencyGroupKeys(configMsg.obj);
           }
           const selectedMsg = await HttpUtil.get(`/panel/api/subscription-market/inbounds/${dbInbound.id}/upstream-configs`);
           if (selectedMsg.success && Array.isArray(selectedMsg.obj)) {
@@ -1524,6 +1542,35 @@
           .filter(config => config.enable && config.nodeCount > 0)
           .map(config => config.id);
         this.$set(this.inboundEmergencyModal, 'configIds', ids);
+      },
+      selectInboundEmergencyGroup(group, checked) {
+        if (!group || !Array.isArray(group.configs)) return;
+        const selected = new Set(Array.isArray(this.inboundEmergencyModal.configIds) ?
+          this.inboundEmergencyModal.configIds : []);
+        for (const config of group.configs) {
+          if (!config.enable || config.nodeCount <= 0) continue;
+          if (checked) {
+            selected.add(config.id);
+          } else {
+            selected.delete(config.id);
+          }
+        }
+        this.$set(this.inboundEmergencyModal, 'configIds', Array.from(selected));
+      },
+      selectedInboundEmergencyCount(configs) {
+        if (!Array.isArray(configs)) return 0;
+        return configs.filter(config => this.isInboundEmergencyUpstreamSelected(config.id)).length;
+      },
+      buildInboundEmergencyGroupKeys(configs) {
+        const keys = [];
+        const seen = new Set();
+        for (const config of Array.isArray(configs) ? configs : []) {
+          const key = String(config.upstreamId || 0);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          keys.push(key);
+        }
+        return keys;
       },
       async submitInboundEmergencyConfig() {
         if (!this.inboundEmergencyModal.inboundId) return;
@@ -2969,6 +3016,25 @@
           };
         });
       },
+      groupedInboundEmergencyConfigs() {
+        const groups = {};
+        for (const config of this.inboundEmergencyUpstreamOptions) {
+          const upstreamId = config.upstreamId || 0;
+          const key = String(upstreamId);
+          if (!groups[key]) {
+            groups[key] = {
+              key,
+              upstreamId,
+              upstreamName: config.upstreamName,
+              enable: config.enable,
+              configs: [],
+            };
+          }
+          groups[key].enable = groups[key].enable || config.enable;
+          groups[key].configs.push(config);
+        }
+        return Object.keys(groups).map(key => groups[key]);
+      },
       filteredUpstreamNodes() {
         return this.filterNodes(this.upstreamNodes, this.inboundUpstreamModal.search);
       },
@@ -3163,14 +3229,29 @@
   }
 
   .emergency-upstream-list {
-    display: grid;
-    gap: 10px;
     max-height: 420px;
     overflow: auto;
     padding-right: 6px;
   }
 
-  .emergency-upstream-list .ant-checkbox-wrapper {
+  .emergency-upstream-list .ant-collapse {
+    background: transparent;
+  }
+
+  .emergency-upstream-list .ant-collapse-item {
+    border: 1px solid rgba(250, 140, 22, .22);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    overflow: hidden;
+    background: rgba(250, 140, 22, .04);
+  }
+
+  .emergency-config-list {
+    display: grid;
+    gap: 8px;
+  }
+
+  .emergency-config-list .ant-checkbox-wrapper {
     margin-left: 0;
     padding: 9px 10px;
     border: 1px solid rgba(250, 140, 22, .24);
@@ -3178,7 +3259,7 @@
     transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
   }
 
-  .emergency-upstream-list .ant-checkbox-wrapper:hover {
+  .emergency-config-list .ant-checkbox-wrapper:hover {
     background: rgba(250, 140, 22, .07);
     border-color: rgba(250, 140, 22, .45);
     box-shadow: 0 4px 12px rgba(250, 140, 22, .12);

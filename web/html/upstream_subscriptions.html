@@ -121,6 +121,8 @@
         <a @click="batchToggleNodesByTag(tag, true)">启用</a>
         <a-divider type="vertical"></a-divider>
         <a @click="batchToggleNodesByTag(tag, false)">关闭</a>
+        <a-divider type="vertical"></a-divider>
+        <a @click="removeTagFromNodesByTag(tag)">删除标签</a>
       </a-tag>
     </div>
     <a-table row-key="id" :columns="nodeColumns" :data-source="filteredNodeModalNodes" :pagination="false" size="middle"
@@ -133,7 +135,8 @@
       </template>
       <template slot="tags" slot-scope="text, record">
         <template v-if="parseNodeTags(record).length">
-          <a-tag v-for="tag in parseNodeTags(record)" :key="tag" color="geekblue">[[ tag ]]</a-tag>
+          <a-tag v-for="tag in parseNodeTags(record)" :key="tag" color="geekblue" closable
+            @close="event => removeNodeTag(record, tag, event)">[[ tag ]]</a-tag>
         </template>
         <span v-else>-</span>
       </template>
@@ -485,6 +488,41 @@
           await this.loadAll();
         }
       },
+      async removeTagFromNodesByTag(tag) {
+        if (!tag || !tag.label || !tag.nodeIds || tag.nodeIds.length === 0) return;
+        const msg = await HttpUtil.post('/panel/api/subscription-market/nodes/batch-tags', {
+          nodeIds: tag.nodeIds,
+          tag: tag.label,
+          add: false
+        });
+        if (msg.success) {
+          const selected = new Set(tag.nodeIds);
+          for (const node of this.nodeModal.nodes) {
+            if (!selected.has(node.id)) continue;
+            this.removeTagFromNodeLocal(node, tag.label);
+          }
+          await this.loadAll();
+        }
+      },
+      async removeNodeTag(record, tag, event) {
+        if (event && event.preventDefault) {
+          event.preventDefault();
+        }
+        if (!record || !record.id || !tag) return;
+        const msg = await HttpUtil.post('/panel/api/subscription-market/nodes/batch-tags', {
+          nodeIds: [record.id],
+          tag,
+          add: false
+        });
+        if (msg.success) {
+          this.removeTagFromNodeLocal(record, tag);
+          await this.loadAll();
+        }
+      },
+      removeTagFromNodeLocal(node, tag) {
+        const tags = this.parseNodeTags(node).filter(item => item.toLowerCase() !== String(tag || '').toLowerCase());
+        node.tags = JSON.stringify(tags);
+      },
       async updateSelectedNodesTag(add) {
         const tag = this.normalizeNodeTag(this.nodeModal.tagInput);
         const nodeIds = this.nodeModal.selectedRowKeys.map(id => Number(id)).filter(id => id > 0);
@@ -502,11 +540,8 @@
             if (add) {
               tags.add(tag);
             } else {
-              for (const item of Array.from(tags)) {
-                if (item.toLowerCase() === tag.toLowerCase()) {
-                  tags.delete(item);
-                }
-              }
+              this.removeTagFromNodeLocal(node, tag);
+              continue;
             }
             node.tags = JSON.stringify(Array.from(tags));
           }
