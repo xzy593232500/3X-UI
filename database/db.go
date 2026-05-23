@@ -44,6 +44,7 @@ func initModels() error {
 		&model.CustomerSubscription{},
 		&model.CustomerSubscriptionNode{},
 		&model.InboundSubscriptionNode{},
+		&model.InboundEmergencyUpstream{},
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {

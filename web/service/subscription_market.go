@@ -207,6 +207,9 @@ func (s *SubscriptionMarketService) DeleteUpstream(id int) error {
 				return err
 			}
 		}
+		if err := tx.Where("upstream_id = ?", id).Delete(&model.InboundEmergencyUpstream{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("upstream_id = ?", id).Delete(&model.UpstreamNode{}).Error; err != nil {
 			return err
 		}
@@ -367,11 +370,16 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 			return err
 		}
 		byHash := make(map[string]model.UpstreamNode, len(existing))
+		byIdentity := make(map[string]model.UpstreamNode, len(existing))
 		for _, node := range existing {
 			byHash[node.Hash] = node
+			if key := upstreamNodeIdentityKey(id, node.SourceType, node.Protocol, node.Name); key != "" {
+				byIdentity[key] = node
+			}
 		}
 
 		seenHashes := make([]string, 0, len(nodes))
+		replacedNodeIDs := make(map[int]int)
 		for index, parsed := range nodes {
 			parsed.Sort = index
 			hash := upstreamNodeHash(id, parsed)
@@ -388,6 +396,10 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 				}
 				continue
 			}
+			var inherited *model.UpstreamNode
+			if current, ok := byIdentity[upstreamNodeIdentityKey(id, parsed.SourceType, parsed.Protocol, parsed.Name)]; ok {
+				inherited = &current
+			}
 			node := model.UpstreamNode{
 				UpstreamId: id,
 				Name:       parsed.Name,
@@ -399,8 +411,16 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 				Enable:     true,
 				Sort:       parsed.Sort,
 			}
+			if inherited != nil {
+				node.Tags = inherited.Tags
+				node.Enable = inherited.Enable
+				node.Emergency = inherited.Emergency
+			}
 			if err := tx.Create(&node).Error; err != nil {
 				return err
+			}
+			if inherited != nil {
+				replacedNodeIDs[inherited.Id] = node.Id
 			}
 		}
 
@@ -413,6 +433,9 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 			return err
 		}
 		if len(staleIDs) > 0 {
+			if err := transferNodeGrants(tx, replacedNodeIDs); err != nil {
+				return err
+			}
 			if err := tx.Where("node_id IN ?", staleIDs).Delete(&model.CustomerSubscriptionNode{}).Error; err != nil {
 				return err
 			}
@@ -593,6 +616,36 @@ func (s *SubscriptionMarketService) SetInboundEmergencyEnable(inboundID int, ena
 	return nil
 }
 
+func (s *SubscriptionMarketService) GetInboundEmergencyUpstreamIDs(inboundID int) ([]int, error) {
+	var count int64
+	if err := database.GetDB().Model(&model.Inbound{}).Where("id = ?", inboundID).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, ErrInboundNotFound
+	}
+	var ids []int
+	err := database.GetDB().
+		Model(model.InboundEmergencyUpstream{}).
+		Where("inbound_id = ?", inboundID).
+		Order("upstream_id asc").
+		Pluck("upstream_id", &ids).Error
+	return ids, err
+}
+
+func (s *SubscriptionMarketService) SetInboundEmergencyUpstreams(inboundID int, upstreamIDs []int) error {
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrInboundNotFound
+		}
+		return s.replaceInboundEmergencyUpstreams(tx, inboundID, upstreamIDs)
+	})
+}
+
 func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) (*InboundSubscriptionContent, error) {
 	inboundIDs, err := s.inboundIDsBySubID(subID)
 	if err != nil {
@@ -615,19 +668,36 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) 
 		return nil, err
 	}
 
-	var emergencyEnabled int64
+	var emergencyInboundIDs []int
 	if err := database.GetDB().
-		Model(&model.Inbound{}).
+		Model(model.Inbound{}).
 		Where("id IN ? AND emergency_enable = ?", inboundIDs, true).
-		Count(&emergencyEnabled).Error; err != nil {
+		Pluck("id", &emergencyInboundIDs).Error; err != nil {
 		return nil, err
 	}
-	if emergencyEnabled > 0 {
+	if len(emergencyInboundIDs) > 0 {
+		var emergencyUpstreamIDs []int
+		if err := database.GetDB().
+			Model(model.InboundEmergencyUpstream{}).
+			Where("inbound_id IN ?", emergencyInboundIDs).
+			Distinct().
+			Pluck("upstream_id", &emergencyUpstreamIDs).Error; err != nil {
+			return nil, err
+		}
+		emergencyUpstreamIDs = uniquePositiveInts(emergencyUpstreamIDs)
+		if len(emergencyUpstreamIDs) == 0 {
+			links, clashProxies := buildUpstreamNodeContent(rows)
+			return &InboundSubscriptionContent{
+				Links:      links,
+				ClashProxy: clashProxies,
+			}, nil
+		}
 		var emergencyRows []upstreamNodeContentRow
 		err = database.GetDB().Table("upstream_nodes").
 			Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
 			Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
 			Where("upstream_nodes.emergency = ?", true).
+			Where("upstream_nodes.upstream_id IN ?", emergencyUpstreamIDs).
 			Where("upstream_nodes.enable = ? AND upstream_subscriptions.enable = ?", true, true).
 			Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc").
 			Scan(&emergencyRows).Error
@@ -786,6 +856,30 @@ func (s *SubscriptionMarketService) replaceInboundNodes(tx *gorm.DB, inboundID i
 	sort.Ints(allowedIDs)
 	for _, nodeID := range allowedIDs {
 		grant := model.InboundSubscriptionNode{InboundId: inboundID, NodeId: nodeID}
+		if err := tx.Create(&grant).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SubscriptionMarketService) replaceInboundEmergencyUpstreams(tx *gorm.DB, inboundID int, upstreamIDs []int) error {
+	if err := tx.Where("inbound_id = ?", inboundID).Delete(&model.InboundEmergencyUpstream{}).Error; err != nil {
+		return err
+	}
+	upstreamIDs = uniquePositiveInts(upstreamIDs)
+	if len(upstreamIDs) == 0 {
+		return nil
+	}
+	var allowedIDs []int
+	if err := tx.Model(&model.UpstreamSubscription{}).
+		Where("id IN ?", upstreamIDs).
+		Pluck("id", &allowedIDs).Error; err != nil {
+		return err
+	}
+	sort.Ints(allowedIDs)
+	for _, upstreamID := range allowedIDs {
+		grant := model.InboundEmergencyUpstream{InboundId: inboundID, UpstreamId: upstreamID}
 		if err := tx.Create(&grant).Error; err != nil {
 			return err
 		}
@@ -1698,6 +1792,38 @@ func upstreamNodeHash(upstreamID int, node parsedUpstreamNode) string {
 	payload := fmt.Sprintf("%d\n%s\n%s\n%s", upstreamID, node.SourceType, link, node.Clash)
 	sum := sha256.Sum256([]byte(payload))
 	return fmt.Sprintf("%x", sum[:])
+}
+
+func upstreamNodeIdentityKey(upstreamID int, sourceType, protocol, name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	return fmt.Sprintf("%d\n%s\n%s\n%s",
+		upstreamID,
+		strings.ToLower(strings.TrimSpace(sourceType)),
+		strings.ToLower(strings.TrimSpace(protocol)),
+		strings.ToLower(name),
+	)
+}
+
+func transferNodeGrants(tx *gorm.DB, replacements map[int]int) error {
+	for oldID, newID := range replacements {
+		if oldID <= 0 || newID <= 0 || oldID == newID {
+			continue
+		}
+		if err := tx.Model(&model.CustomerSubscriptionNode{}).
+			Where("node_id = ?", oldID).
+			Update("node_id", newID).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.InboundSubscriptionNode{}).
+			Where("node_id = ?", oldID).
+			Update("node_id", newID).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func uniquePositiveInts(values []int) []int {

@@ -271,10 +271,6 @@
                             <a-icon type="copy"></a-icon>
                             {{ i18n "pages.inbounds.exportInbound" }}
                           </a-menu-item>
-                          <a-menu-item key="upstreamNodes">
-                            <a-icon type="cluster"></a-icon>
-                            上游节点
-                          </a-menu-item>
                           <a-menu-item key="resetTraffic">
                             <a-icon type="retweet"></a-icon> {{ i18n
                             "pages.inbounds.resetTraffic" }}
@@ -442,8 +438,12 @@
                         @change="switchEnable(dbInbound.id,dbInbound.enable)"></a-switch>
                     </template>
                     <template slot="emergencyEnable" slot-scope="text, dbInbound">
-                      <a-switch :checked="!!dbInbound.emergencyEnable"
-                        @change="checked => toggleInboundEmergency(dbInbound, checked)"></a-switch>
+                      <span class="emergency-action-cell">
+                        <a-switch :checked="!!dbInbound.emergencyEnable"
+                          @change="checked => toggleInboundEmergency(dbInbound, checked)"></a-switch>
+                        <a-button size="small" icon="setting" class="emergency-config-trigger"
+                          @click="openInboundEmergencyConfig(dbInbound)"></a-button>
+                      </span>
                     </template>
                     <template slot="expiryTime" slot-scope="text, dbInbound">
                       <a-popover v-if="dbInbound.expiryTime > 0" :overlay-class-name="themeSwitcher.currentTheme">
@@ -747,6 +747,30 @@
         </a-collapse>
         <a-empty v-if="groupedUpstreamNodes.length === 0" description="暂无可用上游节点"></a-empty>
       </div>
+    </a-spin>
+  </a-modal>
+
+  <a-modal v-model="inboundEmergencyModal.visible" :title="'应急上游订阅 - ' + inboundEmergencyModal.inboundRemark"
+    :confirm-loading="inboundEmergencyModal.saving" :class="themeSwitcher.currentTheme" width="720px"
+    @ok="submitInboundEmergencyConfig">
+    <a-spin :spinning="inboundEmergencyModal.loading" tip="加载中">
+      <a-alert type="info" show-icon message="这里选择哪些上游订阅的应急节点会跟随该入站的应急启用开关追加到客户订阅里。"
+        class="mb-10"></a-alert>
+      <a-space class="mb-10">
+        <a-button size="small" icon="check-square" @click="selectAllInboundEmergencyUpstreams">全选可用</a-button>
+        <a-button size="small" icon="minus-square" @click="inboundEmergencyModal.upstreamIds = []">清空</a-button>
+      </a-space>
+      <div class="emergency-upstream-list" v-if="inboundEmergencyUpstreamOptions.length">
+        <a-checkbox v-for="upstream in inboundEmergencyUpstreamOptions" :key="upstream.id"
+          :checked="isInboundEmergencyUpstreamSelected(upstream.id)"
+          @change="event => setInboundEmergencyUpstreamSelected(upstream.id, event.target.checked)">
+          <span class="node-name">[[ upstream.name ]]</span>
+          <a-tag class="ml-5" :color="upstream.enable ? 'green' : 'red'">[[ upstream.enable ? '启用' : '关闭' ]]</a-tag>
+          <a-tag class="ml-5" color="red">应急 [[ upstream.emergencyCount ]]</a-tag>
+          <a-tag class="ml-5" color="blue">全部 [[ upstream.nodeCount ]]</a-tag>
+        </a-checkbox>
+      </div>
+      <a-empty v-else description="暂无上游订阅"></a-empty>
     </a-spin>
   </a-modal>
 
@@ -1086,7 +1110,7 @@
   }, {
     title: '应急启用',
     align: 'center',
-    width: 45,
+    width: 62,
     scopedSlots: {
       customRender: 'emergencyEnable'
     },
@@ -1287,6 +1311,15 @@
         search: '',
         activeGroupKeys: [],
       },
+      inboundEmergencyModal: {
+        visible: false,
+        loading: false,
+        saving: false,
+        inboundId: null,
+        inboundRemark: '',
+        upstreams: [],
+        upstreamIds: [],
+      },
       quickConfigModal: {
         visible: false,
         saving: false,
@@ -1449,6 +1482,63 @@
           }
         } finally {
           this.inboundUpstreamModal.saving = false;
+        }
+      },
+      async openInboundEmergencyConfig(dbInbound) {
+        if (!dbInbound) return;
+        this.inboundEmergencyModal.inboundId = dbInbound.id;
+        this.inboundEmergencyModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
+        this.inboundEmergencyModal.upstreams = [];
+        this.inboundEmergencyModal.upstreamIds = [];
+        this.inboundEmergencyModal.loading = true;
+        this.inboundEmergencyModal.visible = true;
+        try {
+          const upstreamMsg = await HttpUtil.get('/panel/api/subscription-market/upstreams/list');
+          if (upstreamMsg.success && Array.isArray(upstreamMsg.obj)) {
+            this.inboundEmergencyModal.upstreams = upstreamMsg.obj;
+          }
+          const selectedMsg = await HttpUtil.get(`/panel/api/subscription-market/inbounds/${dbInbound.id}/emergency-upstreams`);
+          if (selectedMsg.success && Array.isArray(selectedMsg.obj)) {
+            this.inboundEmergencyModal.upstreamIds = selectedMsg.obj.slice();
+          }
+        } finally {
+          this.inboundEmergencyModal.loading = false;
+        }
+      },
+      isInboundEmergencyUpstreamSelected(upstreamId) {
+        return Array.isArray(this.inboundEmergencyModal.upstreamIds) &&
+          this.inboundEmergencyModal.upstreamIds.includes(upstreamId);
+      },
+      setInboundEmergencyUpstreamSelected(upstreamId, checked) {
+        const selected = new Set(Array.isArray(this.inboundEmergencyModal.upstreamIds) ?
+          this.inboundEmergencyModal.upstreamIds : []);
+        if (checked) {
+          selected.add(upstreamId);
+        } else {
+          selected.delete(upstreamId);
+        }
+        this.$set(this.inboundEmergencyModal, 'upstreamIds', Array.from(selected));
+      },
+      selectAllInboundEmergencyUpstreams() {
+        const ids = this.inboundEmergencyUpstreamOptions
+          .filter(upstream => upstream.enable && upstream.emergencyCount > 0)
+          .map(upstream => upstream.id);
+        this.$set(this.inboundEmergencyModal, 'upstreamIds', ids);
+      },
+      async submitInboundEmergencyConfig() {
+        if (!this.inboundEmergencyModal.inboundId) return;
+        this.inboundEmergencyModal.saving = true;
+        try {
+          const msg = await HttpUtil.post(
+            `/panel/api/subscription-market/inbounds/${this.inboundEmergencyModal.inboundId}/emergency-upstreams`, {
+              upstreamIds: this.inboundEmergencyModal.upstreamIds
+            });
+          if (msg.success) {
+            this.$message.success('已保存');
+            this.inboundEmergencyModal.visible = false;
+          }
+        } finally {
+          this.inboundEmergencyModal.saving = false;
         }
       },
       isNodeSelected(selectedIds, nodeId) {
@@ -1780,9 +1870,6 @@
             break;
           case "clipboard":
             this.copy(dbInbound.id);
-            break;
-          case "upstreamNodes":
-            this.openInboundUpstreamNodes(dbInbound);
             break;
           case "resetTraffic":
             this.resetTraffic(dbInbound.id);
@@ -2833,6 +2920,20 @@
           expiring: expiring,
         };
       },
+      inboundEmergencyUpstreamOptions() {
+        const upstreams = Array.isArray(this.inboundEmergencyModal.upstreams) ? this.inboundEmergencyModal.upstreams : [];
+        return upstreams.map(upstream => {
+          const nodes = Array.isArray(upstream.nodes) ? upstream.nodes : [];
+          const emergencyCount = nodes.filter(node => node.emergency && node.enable).length;
+          return {
+            id: upstream.id,
+            name: upstream.name || `ID ${upstream.id}`,
+            enable: !!upstream.enable,
+            emergencyCount,
+            nodeCount: nodes.length,
+          };
+        });
+      },
       filteredUpstreamNodes() {
         return this.filterNodes(this.upstreamNodes, this.inboundUpstreamModal.search);
       },
@@ -3000,6 +3101,52 @@
 
   .quick-node-tag .ant-divider {
     background: rgba(255, 255, 255, .55);
+  }
+
+  .emergency-action-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    min-width: 82px;
+  }
+
+  .emergency-config-trigger {
+    border-color: #fa8c16;
+    color: #fa8c16;
+    box-shadow: 0 2px 6px rgba(250, 140, 22, .18);
+    transition: transform .15s ease, box-shadow .15s ease, background .15s ease, color .15s ease;
+  }
+
+  .emergency-config-trigger:hover,
+  .emergency-config-trigger:focus {
+    color: #fff;
+    background: #fa8c16;
+    border-color: #fa8c16;
+    transform: translateY(-1px);
+    box-shadow: 0 6px 14px rgba(250, 140, 22, .30);
+  }
+
+  .emergency-upstream-list {
+    display: grid;
+    gap: 10px;
+    max-height: 420px;
+    overflow: auto;
+    padding-right: 6px;
+  }
+
+  .emergency-upstream-list .ant-checkbox-wrapper {
+    margin-left: 0;
+    padding: 9px 10px;
+    border: 1px solid rgba(250, 140, 22, .24);
+    border-radius: 8px;
+    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+
+  .emergency-upstream-list .ant-checkbox-wrapper:hover {
+    background: rgba(250, 140, 22, .07);
+    border-color: rgba(250, 140, 22, .45);
+    box-shadow: 0 4px 12px rgba(250, 140, 22, .12);
   }
 
   .quick-config-trigger {

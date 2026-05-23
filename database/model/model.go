@@ -200,6 +200,15 @@ type InboundSubscriptionNode struct {
 	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
 }
 
+// InboundEmergencyUpstream limits which upstream subscriptions can contribute
+// emergency nodes for one inbound when emergency mode is enabled.
+type InboundEmergencyUpstream struct {
+	Id         int   `json:"id" gorm:"primaryKey;autoIncrement"`
+	InboundId  int   `json:"inboundId" form:"inboundId" gorm:"uniqueIndex:idx_inbound_emergency_upstream;column:inbound_id"`
+	UpstreamId int   `json:"upstreamId" form:"upstreamId" gorm:"uniqueIndex:idx_inbound_emergency_upstream;column:upstream_id"`
+	CreatedAt  int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+}
+
 type ClientReverse struct {
 	Tag string `json:"tag"`
 }

@@ -62,6 +62,8 @@ func (a *SubscriptionMarketAPIController) initRouter(g *gin.RouterGroup) {
 	inbounds.GET("/:id/nodes", a.getInboundNodes)
 	inbounds.POST("/:id/nodes", a.updateInboundNodes)
 	inbounds.POST("/:id/emergency", a.toggleInboundEmergency)
+	inbounds.GET("/:id/emergency-upstreams", a.getInboundEmergencyUpstreams)
+	inbounds.POST("/:id/emergency-upstreams", a.updateInboundEmergencyUpstreams)
 }
 
 func (a *CustomerSubscriptionPublicController) initRouter(g *gin.RouterGroup) {
@@ -87,6 +89,10 @@ type customerSubscriptionForm struct {
 
 type nodeSelectionForm struct {
 	NodeIds []int `json:"nodeIds" form:"nodeIds"`
+}
+
+type upstreamSelectionForm struct {
+	UpstreamIds []int `json:"upstreamIds" form:"upstreamIds"`
 }
 
 type nodeBatchToggleForm struct {
@@ -340,6 +346,29 @@ func (a *SubscriptionMarketAPIController) toggleInboundEmergency(c *gin.Context)
 	}
 	err := a.subscriptionMarket.SetInboundEmergencyEnable(id, form.Enable)
 	jsonMsg(c, "toggle inbound emergency nodes", err)
+}
+
+func (a *SubscriptionMarketAPIController) getInboundEmergencyUpstreams(c *gin.Context) {
+	id, ok := parsePositiveID(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	upstreamIDs, err := a.subscriptionMarket.GetInboundEmergencyUpstreamIDs(id)
+	jsonObj(c, upstreamIDs, err)
+}
+
+func (a *SubscriptionMarketAPIController) updateInboundEmergencyUpstreams(c *gin.Context) {
+	id, ok := parsePositiveID(c, c.Param("id"))
+	if !ok {
+		return
+	}
+	var form upstreamSelectionForm
+	if err := c.ShouldBind(&form); err != nil {
+		jsonMsg(c, "update inbound emergency upstreams", err)
+		return
+	}
+	err := a.subscriptionMarket.SetInboundEmergencyUpstreams(id, form.UpstreamIds)
+	jsonMsg(c, "update inbound emergency upstreams", err)
 }
 
 func (a *CustomerSubscriptionPublicController) customerSubscription(c *gin.Context) {
