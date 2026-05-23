@@ -1904,6 +1904,9 @@
         });
       },
       async cloneInbound(baseInbound, dbInbound) {
+        const port = this.randomInboundPort();
+        const settings = Inbound.Settings.getSettings(baseInbound.protocol);
+        this.applyDefaultInboundClientEmail(baseInbound.protocol, settings, port, true);
         const data = {
           up: dbInbound.up,
           down: dbInbound.down,
@@ -1922,9 +1925,9 @@
           socksProxyPassword: dbInbound.socksProxyPassword,
 
           listen: '',
-          port: this.randomInboundPort(),
+          port: port,
           protocol: baseInbound.protocol,
-          settings: Inbound.Settings.getSettings(baseInbound.protocol).toString(),
+          settings: settings.toString(),
           streamSettings: baseInbound.stream.toString(),
           sniffing: baseInbound.sniffing.toString(),
         };
@@ -1940,9 +1943,41 @@
           },
           isEdit: false
         });
+        this.applyDefaultInboundClientEmail(inModal.inbound.protocol, inModal.inbound.settings, inModal.inbound.port, true);
       },
       randomInboundPort() {
         return RandomUtil.randomInteger(10000, 19999);
+      },
+      defaultInboundClientEmail(port) {
+        return `高速节点-V${port}`;
+      },
+      isAutoInboundClientEmail(email) {
+        const value = String(email || '').trim();
+        return !value || /^高速节点-V\d+$/.test(value) || /^[a-z0-9]{8,9}$/.test(value);
+      },
+      getSettingsClients(protocol, settings) {
+        if (!settings) return null;
+        switch (protocol) {
+          case Protocols.VMESS:
+            return settings.vmesses;
+          case Protocols.VLESS:
+            return settings.vlesses;
+          case Protocols.TROJAN:
+            return settings.trojans;
+          case Protocols.SHADOWSOCKS:
+            return settings.shadowsockses;
+          case Protocols.HYSTERIA:
+            return settings.hysterias;
+          default:
+            return null;
+        }
+      },
+      applyDefaultInboundClientEmail(protocol, settings, port, force = false) {
+        const clients = this.getSettingsClients(protocol, settings);
+        if (!Array.isArray(clients) || clients.length === 0 || !port) return;
+        if (force || this.isAutoInboundClientEmail(clients[0].email)) {
+          clients[0].email = this.defaultInboundClientEmail(port);
+        }
       },
       openEditInbound(dbInboundId) {
         dbInbound = this.dbInbounds.find(row => row.id === dbInboundId);
@@ -1977,6 +2012,7 @@
         return formData;
       },
       async addInbound(inbound, dbInbound) {
+        this.applyDefaultInboundClientEmail(inbound.protocol, inbound.settings, inbound.port);
         const existingIds = new Set(this.dbInbounds.map(row => Number(row.id)));
         const pendingVmessLink = this.getFirstVmessLinkFromInbound(inbound, dbInbound.remark);
         const pendingVmessCopy = pendingVmessLink ?

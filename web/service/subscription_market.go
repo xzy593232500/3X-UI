@@ -655,18 +655,7 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) 
 		return &InboundSubscriptionContent{}, nil
 	}
 
-	var rows []upstreamNodeContentRow
-	err = database.GetDB().Table("inbound_subscription_nodes").
-		Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
-		Joins("JOIN upstream_nodes ON upstream_nodes.id = inbound_subscription_nodes.node_id").
-		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
-		Where("inbound_subscription_nodes.inbound_id IN ?", inboundIDs).
-		Where("upstream_nodes.enable = ? AND upstream_subscriptions.enable = ?", true, true).
-		Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc").
-		Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
+	rows := make([]upstreamNodeContentRow, 0)
 
 	var emergencyInboundIDs []int
 	if err := database.GetDB().
