@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -542,13 +543,13 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 				continue
 			}
 			dest, _ := ep["dest"].(string)
-			portF, okPort := ep["port"].(float64)
+			port, okPort := externalProxyPortString(ep["port"])
 			if dest == "" || !okPort {
 				continue
 			}
 			epRemark, _ := ep["remark"].(string)
 
-			link := fmt.Sprintf("%s://%s@%s:%d", protocol, auth, dest, int(portF))
+			link := fmt.Sprintf("%s://%s@%s:%s", protocol, auth, dest, port)
 			u, _ := url.Parse(link)
 			q := u.Query()
 			for k, v := range params {
@@ -571,6 +572,41 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	url.RawQuery = q.Encode()
 	url.Fragment = s.genRemark(inbound, email, "")
 	return url.String()
+}
+
+func externalProxyPortString(value any) (string, bool) {
+	switch v := value.(type) {
+	case float64:
+		port := int(v)
+		if port < 1 || port > 65535 {
+			return "", false
+		}
+		return strconv.Itoa(port), true
+	case string:
+		port := strings.TrimSpace(v)
+		if port == "" {
+			return "", false
+		}
+		return port, true
+	default:
+		return "", false
+	}
+}
+
+func externalProxyPortInt(value any) (int, bool) {
+	switch v := value.(type) {
+	case float64:
+		port := int(v)
+		return port, port >= 1 && port <= 65535
+	case string:
+		port, err := strconv.Atoi(strings.TrimSpace(v))
+		if err != nil {
+			return 0, false
+		}
+		return port, port >= 1 && port <= 65535
+	default:
+		return 0, false
+	}
 }
 
 func (s *SubService) resolveInboundAddress(inbound *model.Inbound) string {
@@ -810,7 +846,11 @@ func (s *SubService) buildVmessExternalProxyLinks(externalProxies []any, baseObj
 		newObj := cloneVmessShareObj(baseObj, newSecurity)
 		newObj["ps"] = s.genRemark(inbound, email, ep["remark"].(string))
 		newObj["add"] = ep["dest"].(string)
-		newObj["port"] = int(ep["port"].(float64))
+		port, ok := externalProxyPortInt(ep["port"])
+		if !ok {
+			continue
+		}
+		newObj["port"] = port
 
 		if newSecurity != "same" {
 			newObj["tls"] = newSecurity
@@ -863,7 +903,10 @@ func (s *SubService) buildExternalProxyURLLinks(
 		ep, _ := externalProxy.(map[string]any)
 		newSecurity, _ := ep["forceTls"].(string)
 		dest, _ := ep["dest"].(string)
-		port := int(ep["port"].(float64))
+		port, ok := externalProxyPortInt(ep["port"])
+		if !ok {
+			continue
+		}
 
 		securityToApply := baseSecurity
 		if newSecurity != "same" {
@@ -1243,7 +1286,7 @@ func marshalFinalMask(finalmask map[string]any) (string, bool) {
 func normalizeFinalMask(finalmask map[string]any) map[string]any {
 	tcpMasks := normalizedFinalMaskTCPMasks(finalmask)
 	udpMasks := normalizedFinalMaskUDPMasks(finalmask)
-	quicParams, hasQuicParams := finalmask["quicParams"].(map[string]any)
+	quicParams, hasQuicParams := normalizedFinalMaskQuicParams(finalmask["quicParams"])
 
 	if len(tcpMasks) == 0 && len(udpMasks) == 0 && !hasQuicParams {
 		return nil
@@ -1260,6 +1303,31 @@ func normalizeFinalMask(finalmask map[string]any) map[string]any {
 		result["quicParams"] = quicParams
 	}
 	return result
+}
+
+func normalizedFinalMaskQuicParams(value any) (map[string]any, bool) {
+	raw, ok := value.(map[string]any)
+	if !ok || len(raw) == 0 {
+		return nil, false
+	}
+	normalized := make(map[string]any, len(raw))
+	for key, value := range raw {
+		switch key {
+		case "brutalUp", "brutalDown":
+			if text, ok := value.(string); ok {
+				text = strings.TrimSpace(text)
+				text = strings.NewReplacer(" ", "", "+", "", "\t", "").Replace(text)
+				text = strings.ToLower(text)
+				if text == "" {
+					continue
+				}
+				normalized[key] = text
+				continue
+			}
+		}
+		normalized[key] = value
+	}
+	return normalized, len(normalized) > 0
 }
 
 func normalizedFinalMaskTCPMasks(value any) []any {
