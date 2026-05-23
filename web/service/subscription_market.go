@@ -71,8 +71,8 @@ type UpstreamNodeConfigView struct {
 	UpstreamName string `json:"upstreamName"`
 	Name         string `json:"name"`
 	Enable       bool   `json:"enable"`
-	NodeIds      []int  `json:"nodeIds"`
-	NodeCount    int    `json:"nodeCount"`
+	NodeIds      []int  `json:"nodeIds" gorm:"-"`
+	NodeCount    int    `json:"nodeCount" gorm:"-"`
 	CreatedAt    int64  `json:"createdAt"`
 	UpdatedAt    int64  `json:"updatedAt"`
 }
