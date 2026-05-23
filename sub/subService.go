@@ -475,7 +475,6 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	auth := clients[clientIndex].Auth
 	params := make(map[string]string)
 
-	params["security"] = "tls"
 	tlsSetting, _ := stream["tlsSettings"].(map[string]any)
 	alpns, _ := tlsSetting["alpn"].([]any)
 	var alpn []string
@@ -488,18 +487,20 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	if sniValue, ok := searchKey(tlsSetting, "serverName"); ok {
 		if sni, _ := sniValue.(string); strings.TrimSpace(sni) != "" {
 			params["sni"] = sni
+			params["peer"] = sni
 		}
 	}
 
 	tlsSettings, _ := searchKey(tlsSetting, "settings")
 	if tlsSetting != nil {
-		if fpValue, ok := searchKey(tlsSettings, "fingerprint"); ok {
-			params["fp"], _ = fpValue.(string)
-		}
 		if insecure, ok := searchKey(tlsSettings, "allowInsecure"); ok {
-			if insecure.(bool) {
+			if insecureBool, _ := insecure.(bool); insecureBool {
 				params["insecure"] = "1"
+			} else {
+				params["insecure"] = "0"
 			}
+		} else {
+			params["insecure"] = "0"
 		}
 	}
 
@@ -507,7 +508,6 @@ func (s *SubService) genHysteriaLink(inbound *model.Inbound, email string) strin
 	// emits these; keep the subscription output in sync so a client has
 	// the obfs password to match the server.
 	if finalmask, ok := stream["finalmask"].(map[string]any); ok {
-		applyFinalMaskParams(finalmask, params)
 		if udpMasks, ok := finalmask["udp"].([]any); ok {
 			for _, m := range udpMasks {
 				mask, _ := m.(map[string]any)
