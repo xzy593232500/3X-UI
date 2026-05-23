@@ -750,27 +750,27 @@
     </a-spin>
   </a-modal>
 
-  <a-modal v-model="inboundEmergencyModal.visible" :title="'应急上游订阅 - ' + inboundEmergencyModal.inboundRemark"
+  <a-modal v-model="inboundEmergencyModal.visible" :title="'上游启用配置 - ' + inboundEmergencyModal.inboundRemark"
     :confirm-loading="inboundEmergencyModal.saving" :class="themeSwitcher.currentTheme" width="720px"
     @ok="submitInboundEmergencyConfig">
     <a-spin :spinning="inboundEmergencyModal.loading" tip="加载中">
-      <a-alert type="info" show-icon message="这里选择哪些上游订阅的应急节点会跟随该入站的应急启用开关追加到客户订阅里。"
+      <a-alert type="info" show-icon message="这里选择哪些上游订阅的节点配置会跟随该入站的上游启用开关追加到客户订阅里。"
         class="mb-10"></a-alert>
       <a-space class="mb-10">
-        <a-button size="small" icon="check-square" @click="selectAllInboundEmergencyUpstreams">全选可用</a-button>
-        <a-button size="small" icon="minus-square" @click="inboundEmergencyModal.upstreamIds = []">清空</a-button>
+        <a-button size="small" icon="check-square" @click="selectAllInboundEmergencyUpstreams">全选可用配置</a-button>
+        <a-button size="small" icon="minus-square" @click="inboundEmergencyModal.configIds = []">清空</a-button>
       </a-space>
       <div class="emergency-upstream-list" v-if="inboundEmergencyUpstreamOptions.length">
-        <a-checkbox v-for="upstream in inboundEmergencyUpstreamOptions" :key="upstream.id"
-          :checked="isInboundEmergencyUpstreamSelected(upstream.id)"
-          @change="event => setInboundEmergencyUpstreamSelected(upstream.id, event.target.checked)">
-          <span class="node-name">[[ upstream.name ]]</span>
-          <a-tag class="ml-5" :color="upstream.enable ? 'green' : 'red'">[[ upstream.enable ? '启用' : '关闭' ]]</a-tag>
-          <a-tag class="ml-5" color="red">应急 [[ upstream.emergencyCount ]]</a-tag>
-          <a-tag class="ml-5" color="blue">全部 [[ upstream.nodeCount ]]</a-tag>
+        <a-checkbox v-for="config in inboundEmergencyUpstreamOptions" :key="config.id"
+          :checked="isInboundEmergencyUpstreamSelected(config.id)"
+          @change="event => setInboundEmergencyUpstreamSelected(config.id, event.target.checked)">
+          <span class="node-name">[[ config.name ]]</span>
+          <a-tag class="ml-5" color="geekblue">[[ config.upstreamName ]]</a-tag>
+          <a-tag class="ml-5" :color="config.enable ? 'green' : 'red'">[[ config.enable ? '启用' : '关闭' ]]</a-tag>
+          <a-tag class="ml-5" color="blue">节点 [[ config.nodeCount ]]</a-tag>
         </a-checkbox>
       </div>
-      <a-empty v-else description="暂无上游订阅"></a-empty>
+      <a-empty v-else description="暂无节点配置"></a-empty>
     </a-spin>
   </a-modal>
 
@@ -1108,7 +1108,7 @@
       customRender: 'enable'
     },
   }, {
-    title: '应急启用',
+    title: '上游启用',
     align: 'center',
     width: 62,
     scopedSlots: {
@@ -1317,8 +1317,8 @@
         saving: false,
         inboundId: null,
         inboundRemark: '',
-        upstreams: [],
-        upstreamIds: [],
+        configs: [],
+        configIds: [],
       },
       quickConfigModal: {
         visible: false,
@@ -1488,50 +1488,50 @@
         if (!dbInbound) return;
         this.inboundEmergencyModal.inboundId = dbInbound.id;
         this.inboundEmergencyModal.inboundRemark = dbInbound.remark || `ID ${dbInbound.id}`;
-        this.inboundEmergencyModal.upstreams = [];
-        this.inboundEmergencyModal.upstreamIds = [];
+        this.inboundEmergencyModal.configs = [];
+        this.inboundEmergencyModal.configIds = [];
         this.inboundEmergencyModal.loading = true;
         this.inboundEmergencyModal.visible = true;
         try {
-          const upstreamMsg = await HttpUtil.get('/panel/api/subscription-market/upstreams/list');
-          if (upstreamMsg.success && Array.isArray(upstreamMsg.obj)) {
-            this.inboundEmergencyModal.upstreams = upstreamMsg.obj;
+          const configMsg = await HttpUtil.get('/panel/api/subscription-market/node-configs/list');
+          if (configMsg.success && Array.isArray(configMsg.obj)) {
+            this.inboundEmergencyModal.configs = configMsg.obj;
           }
-          const selectedMsg = await HttpUtil.get(`/panel/api/subscription-market/inbounds/${dbInbound.id}/emergency-upstreams`);
+          const selectedMsg = await HttpUtil.get(`/panel/api/subscription-market/inbounds/${dbInbound.id}/upstream-configs`);
           if (selectedMsg.success && Array.isArray(selectedMsg.obj)) {
-            this.inboundEmergencyModal.upstreamIds = selectedMsg.obj.slice();
+            this.inboundEmergencyModal.configIds = selectedMsg.obj.slice();
           }
         } finally {
           this.inboundEmergencyModal.loading = false;
         }
       },
-      isInboundEmergencyUpstreamSelected(upstreamId) {
-        return Array.isArray(this.inboundEmergencyModal.upstreamIds) &&
-          this.inboundEmergencyModal.upstreamIds.includes(upstreamId);
+      isInboundEmergencyUpstreamSelected(configId) {
+        return Array.isArray(this.inboundEmergencyModal.configIds) &&
+          this.inboundEmergencyModal.configIds.includes(configId);
       },
-      setInboundEmergencyUpstreamSelected(upstreamId, checked) {
-        const selected = new Set(Array.isArray(this.inboundEmergencyModal.upstreamIds) ?
-          this.inboundEmergencyModal.upstreamIds : []);
+      setInboundEmergencyUpstreamSelected(configId, checked) {
+        const selected = new Set(Array.isArray(this.inboundEmergencyModal.configIds) ?
+          this.inboundEmergencyModal.configIds : []);
         if (checked) {
-          selected.add(upstreamId);
+          selected.add(configId);
         } else {
-          selected.delete(upstreamId);
+          selected.delete(configId);
         }
-        this.$set(this.inboundEmergencyModal, 'upstreamIds', Array.from(selected));
+        this.$set(this.inboundEmergencyModal, 'configIds', Array.from(selected));
       },
       selectAllInboundEmergencyUpstreams() {
         const ids = this.inboundEmergencyUpstreamOptions
-          .filter(upstream => upstream.enable && upstream.emergencyCount > 0)
-          .map(upstream => upstream.id);
-        this.$set(this.inboundEmergencyModal, 'upstreamIds', ids);
+          .filter(config => config.enable && config.nodeCount > 0)
+          .map(config => config.id);
+        this.$set(this.inboundEmergencyModal, 'configIds', ids);
       },
       async submitInboundEmergencyConfig() {
         if (!this.inboundEmergencyModal.inboundId) return;
         this.inboundEmergencyModal.saving = true;
         try {
           const msg = await HttpUtil.post(
-            `/panel/api/subscription-market/inbounds/${this.inboundEmergencyModal.inboundId}/emergency-upstreams`, {
-              upstreamIds: this.inboundEmergencyModal.upstreamIds
+            `/panel/api/subscription-market/inbounds/${this.inboundEmergencyModal.inboundId}/upstream-configs`, {
+              configIds: this.inboundEmergencyModal.configIds
             });
           if (msg.success) {
             this.$message.success('已保存');
@@ -2957,16 +2957,15 @@
         };
       },
       inboundEmergencyUpstreamOptions() {
-        const upstreams = Array.isArray(this.inboundEmergencyModal.upstreams) ? this.inboundEmergencyModal.upstreams : [];
-        return upstreams.map(upstream => {
-          const nodes = Array.isArray(upstream.nodes) ? upstream.nodes : [];
-          const emergencyCount = nodes.filter(node => node.emergency && node.enable).length;
+        const configs = Array.isArray(this.inboundEmergencyModal.configs) ? this.inboundEmergencyModal.configs : [];
+        return configs.map(config => {
           return {
-            id: upstream.id,
-            name: upstream.name || `ID ${upstream.id}`,
-            enable: !!upstream.enable,
-            emergencyCount,
-            nodeCount: nodes.length,
+            id: config.id,
+            upstreamId: config.upstreamId,
+            upstreamName: config.upstreamName || `上游 ${config.upstreamId}`,
+            name: config.name || `配置 ${config.id}`,
+            enable: !!config.enable,
+            nodeCount: Number(config.nodeCount || 0),
           };
         });
       },

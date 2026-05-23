@@ -41,10 +41,13 @@ func initModels() error {
 		&model.CustomGeoResource{},
 		&model.UpstreamSubscription{},
 		&model.UpstreamNode{},
+		&model.UpstreamNodeConfig{},
+		&model.UpstreamNodeConfigNode{},
 		&model.CustomerSubscription{},
 		&model.CustomerSubscriptionNode{},
 		&model.InboundSubscriptionNode{},
 		&model.InboundEmergencyUpstream{},
+		&model.InboundUpstreamConfig{},
 	}
 	for _, model := range models {
 		if err := db.AutoMigrate(model); err != nil {

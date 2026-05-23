@@ -172,6 +172,25 @@ type UpstreamNode struct {
 	UpdatedAt  int64  `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`
 }
 
+// UpstreamNodeConfig is a named reusable node selection under one upstream
+// subscription. Inbounds can enable one or more of these configurations.
+type UpstreamNodeConfig struct {
+	Id         int    `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`
+	UpstreamId int    `json:"upstreamId" form:"upstreamId" gorm:"index;column:upstream_id"`
+	Name       string `json:"name" form:"name" gorm:"not null"`
+	Sort       int    `json:"sort" form:"sort" gorm:"default:0"`
+	CreatedAt  int64  `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+	UpdatedAt  int64  `json:"updatedAt" gorm:"autoUpdateTime;column:updated_at"`
+}
+
+// UpstreamNodeConfigNode grants one node to one named upstream node config.
+type UpstreamNodeConfigNode struct {
+	Id        int   `json:"id" gorm:"primaryKey;autoIncrement"`
+	ConfigId  int   `json:"configId" form:"configId" gorm:"uniqueIndex:idx_upstream_node_config_node;column:config_id"`
+	NodeId    int   `json:"nodeId" form:"nodeId" gorm:"uniqueIndex:idx_upstream_node_config_node;column:node_id"`
+	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+}
+
 // CustomerSubscription represents a downstream customer subscription token.
 type CustomerSubscription struct {
 	Id         int    `json:"id" form:"id" gorm:"primaryKey;autoIncrement"`
@@ -207,6 +226,15 @@ type InboundEmergencyUpstream struct {
 	InboundId  int   `json:"inboundId" form:"inboundId" gorm:"uniqueIndex:idx_inbound_emergency_upstream;column:inbound_id"`
 	UpstreamId int   `json:"upstreamId" form:"upstreamId" gorm:"uniqueIndex:idx_inbound_emergency_upstream;column:upstream_id"`
 	CreatedAt  int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
+}
+
+// InboundUpstreamConfig enables a named upstream node configuration for one
+// inbound when the inbound upstream-enable switch is on.
+type InboundUpstreamConfig struct {
+	Id        int   `json:"id" gorm:"primaryKey;autoIncrement"`
+	InboundId int   `json:"inboundId" form:"inboundId" gorm:"uniqueIndex:idx_inbound_upstream_config;column:inbound_id"`
+	ConfigId  int   `json:"configId" form:"configId" gorm:"uniqueIndex:idx_inbound_upstream_config;column:config_id"`
+	CreatedAt int64 `json:"createdAt" gorm:"autoCreateTime;column:created_at"`
 }
 
 type ClientReverse struct {

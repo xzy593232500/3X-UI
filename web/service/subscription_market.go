@@ -65,6 +65,18 @@ type UpstreamNodeView struct {
 	UpdatedAt    int64  `json:"updatedAt"`
 }
 
+type UpstreamNodeConfigView struct {
+	Id           int    `json:"id"`
+	UpstreamId   int    `json:"upstreamId"`
+	UpstreamName string `json:"upstreamName"`
+	Name         string `json:"name"`
+	Enable       bool   `json:"enable"`
+	NodeIds      []int  `json:"nodeIds"`
+	NodeCount    int    `json:"nodeCount"`
+	CreatedAt    int64  `json:"createdAt"`
+	UpdatedAt    int64  `json:"updatedAt"`
+}
+
 type CustomerSubscriptionView struct {
 	Id              int    `json:"id"`
 	Name            string `json:"name"`
@@ -199,11 +211,29 @@ func (s *SubscriptionMarketService) DeleteUpstream(id int) error {
 		if err := tx.Model(model.UpstreamNode{}).Where("upstream_id = ?", id).Pluck("id", &nodeIDs).Error; err != nil {
 			return err
 		}
+		var configIDs []int
+		if err := tx.Model(model.UpstreamNodeConfig{}).Where("upstream_id = ?", id).Pluck("id", &configIDs).Error; err != nil {
+			return err
+		}
 		if len(nodeIDs) > 0 {
 			if err := tx.Where("node_id IN ?", nodeIDs).Delete(&model.CustomerSubscriptionNode{}).Error; err != nil {
 				return err
 			}
 			if err := tx.Where("node_id IN ?", nodeIDs).Delete(&model.InboundSubscriptionNode{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("node_id IN ?", nodeIDs).Delete(&model.UpstreamNodeConfigNode{}).Error; err != nil {
+				return err
+			}
+		}
+		if len(configIDs) > 0 {
+			if err := tx.Where("config_id IN ?", configIDs).Delete(&model.InboundUpstreamConfig{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("config_id IN ?", configIDs).Delete(&model.UpstreamNodeConfigNode{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("id IN ?", configIDs).Delete(&model.UpstreamNodeConfig{}).Error; err != nil {
 				return err
 			}
 		}
@@ -331,6 +361,99 @@ func (s *SubscriptionMarketService) SetUpstreamEmergencyNodes(upstreamID int, no
 	})
 }
 
+func (s *SubscriptionMarketService) GetAllUpstreamNodeConfigs() ([]UpstreamNodeConfigView, error) {
+	db := database.GetDB()
+	if err := db.Transaction(func(tx *gorm.DB) error {
+		return s.ensureLegacyNodeConfigs(tx)
+	}); err != nil {
+		return nil, err
+	}
+	return s.getUpstreamNodeConfigs(0)
+}
+
+func (s *SubscriptionMarketService) GetUpstreamNodeConfigs(upstreamID int) ([]UpstreamNodeConfigView, error) {
+	var count int64
+	if err := database.GetDB().Model(&model.UpstreamSubscription{}).Where("id = ?", upstreamID).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, ErrSubscriptionNotFound
+	}
+	if err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		return s.ensureLegacyNodeConfigs(tx)
+	}); err != nil {
+		return nil, err
+	}
+	return s.getUpstreamNodeConfigs(upstreamID)
+}
+
+func (s *SubscriptionMarketService) CreateUpstreamNodeConfig(upstreamID int, name string, nodeIDs []int) (*UpstreamNodeConfigView, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrSubscriptionNameRequired
+	}
+	var config model.UpstreamNodeConfig
+	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&model.UpstreamSubscription{}).Where("id = ?", upstreamID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrSubscriptionNotFound
+		}
+		config = model.UpstreamNodeConfig{
+			UpstreamId: upstreamID,
+			Name:       name,
+		}
+		if err := tx.Create(&config).Error; err != nil {
+			return err
+		}
+		return s.replaceUpstreamNodeConfigNodes(tx, upstreamID, config.Id, nodeIDs)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.getUpstreamNodeConfig(config.Id)
+}
+
+func (s *SubscriptionMarketService) UpdateUpstreamNodeConfig(upstreamID int, configID int, name string, nodeIDs []int) (*UpstreamNodeConfigView, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, ErrSubscriptionNameRequired
+	}
+	err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var config model.UpstreamNodeConfig
+		if err := tx.Where("id = ? AND upstream_id = ?", configID, upstreamID).First(&config).Error; err != nil {
+			return mapGormNotFound(err, ErrSubscriptionNotFound)
+		}
+		config.Name = name
+		if err := tx.Save(&config).Error; err != nil {
+			return err
+		}
+		return s.replaceUpstreamNodeConfigNodes(tx, upstreamID, configID, nodeIDs)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.getUpstreamNodeConfig(configID)
+}
+
+func (s *SubscriptionMarketService) DeleteUpstreamNodeConfig(upstreamID int, configID int) error {
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		result := tx.Where("id = ? AND upstream_id = ?", configID, upstreamID).Delete(&model.UpstreamNodeConfig{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return ErrSubscriptionNotFound
+		}
+		if err := tx.Where("config_id = ?", configID).Delete(&model.UpstreamNodeConfigNode{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("config_id = ?", configID).Delete(&model.InboundUpstreamConfig{}).Error
+	})
+}
+
 func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscription, error) {
 	db := database.GetDB()
 	var upstream model.UpstreamSubscription
@@ -440,6 +563,9 @@ func (s *SubscriptionMarketService) SyncUpstream(id int) (*model.UpstreamSubscri
 				return err
 			}
 			if err := tx.Where("node_id IN ?", staleIDs).Delete(&model.InboundSubscriptionNode{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("node_id IN ?", staleIDs).Delete(&model.UpstreamNodeConfigNode{}).Error; err != nil {
 				return err
 			}
 			if err := tx.Where("id IN ?", staleIDs).Delete(&model.UpstreamNode{}).Error; err != nil {
@@ -646,6 +772,41 @@ func (s *SubscriptionMarketService) SetInboundEmergencyUpstreams(inboundID int, 
 	})
 }
 
+func (s *SubscriptionMarketService) GetInboundUpstreamConfigIDs(inboundID int) ([]int, error) {
+	var count int64
+	if err := database.GetDB().Model(&model.Inbound{}).Where("id = ?", inboundID).Count(&count).Error; err != nil {
+		return nil, err
+	}
+	if count == 0 {
+		return nil, ErrInboundNotFound
+	}
+	if err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		return s.ensureLegacyNodeConfigs(tx)
+	}); err != nil {
+		return nil, err
+	}
+	var ids []int
+	err := database.GetDB().
+		Model(model.InboundUpstreamConfig{}).
+		Where("inbound_id = ?", inboundID).
+		Order("config_id asc").
+		Pluck("config_id", &ids).Error
+	return ids, err
+}
+
+func (s *SubscriptionMarketService) SetInboundUpstreamConfigs(inboundID int, configIDs []int) error {
+	return database.GetDB().Transaction(func(tx *gorm.DB) error {
+		var count int64
+		if err := tx.Model(&model.Inbound{}).Where("id = ?", inboundID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count == 0 {
+			return ErrInboundNotFound
+		}
+		return s.replaceInboundUpstreamConfigs(tx, inboundID, configIDs)
+	})
+}
+
 func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) (*InboundSubscriptionContent, error) {
 	inboundIDs, err := s.inboundIDsBySubID(subID)
 	if err != nil {
@@ -653,6 +814,11 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) 
 	}
 	if len(inboundIDs) == 0 {
 		return &InboundSubscriptionContent{}, nil
+	}
+	if err := database.GetDB().Transaction(func(tx *gorm.DB) error {
+		return s.ensureLegacyNodeConfigs(tx)
+	}); err != nil {
+		return nil, err
 	}
 
 	rows := make([]upstreamNodeContentRow, 0)
@@ -665,35 +831,36 @@ func (s *SubscriptionMarketService) GetInboundSubscriptionContent(subID string) 
 		return nil, err
 	}
 	if len(emergencyInboundIDs) > 0 {
-		var emergencyUpstreamIDs []int
+		var upstreamConfigIDs []int
 		if err := database.GetDB().
-			Model(model.InboundEmergencyUpstream{}).
+			Model(model.InboundUpstreamConfig{}).
 			Where("inbound_id IN ?", emergencyInboundIDs).
 			Distinct().
-			Pluck("upstream_id", &emergencyUpstreamIDs).Error; err != nil {
+			Pluck("config_id", &upstreamConfigIDs).Error; err != nil {
 			return nil, err
 		}
-		emergencyUpstreamIDs = uniquePositiveInts(emergencyUpstreamIDs)
-		if len(emergencyUpstreamIDs) == 0 {
+		upstreamConfigIDs = uniquePositiveInts(upstreamConfigIDs)
+		if len(upstreamConfigIDs) == 0 {
 			links, clashProxies := buildUpstreamNodeContent(rows)
 			return &InboundSubscriptionContent{
 				Links:      links,
 				ClashProxy: clashProxies,
 			}, nil
 		}
-		var emergencyRows []upstreamNodeContentRow
-		err = database.GetDB().Table("upstream_nodes").
+		var configRows []upstreamNodeContentRow
+		err = database.GetDB().Table("upstream_node_config_nodes").
 			Select("DISTINCT upstream_nodes.id, upstream_subscriptions.id AS upstream_sort_id, upstream_nodes.sort, upstream_nodes.link, upstream_nodes.clash").
+			Joins("JOIN upstream_node_configs ON upstream_node_configs.id = upstream_node_config_nodes.config_id").
+			Joins("JOIN upstream_nodes ON upstream_nodes.id = upstream_node_config_nodes.node_id").
 			Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_nodes.upstream_id").
-			Where("upstream_nodes.emergency = ?", true).
-			Where("upstream_nodes.upstream_id IN ?", emergencyUpstreamIDs).
+			Where("upstream_node_config_nodes.config_id IN ?", upstreamConfigIDs).
 			Where("upstream_nodes.enable = ? AND upstream_subscriptions.enable = ?", true, true).
 			Order("upstream_subscriptions.id desc, upstream_nodes.sort asc, upstream_nodes.id asc").
-			Scan(&emergencyRows).Error
+			Scan(&configRows).Error
 		if err != nil {
 			return nil, err
 		}
-		rows = append(rows, emergencyRows...)
+		rows = append(rows, configRows...)
 	}
 
 	links, clashProxies := buildUpstreamNodeContent(rows)
@@ -870,6 +1037,184 @@ func (s *SubscriptionMarketService) replaceInboundEmergencyUpstreams(tx *gorm.DB
 	for _, upstreamID := range allowedIDs {
 		grant := model.InboundEmergencyUpstream{InboundId: inboundID, UpstreamId: upstreamID}
 		if err := tx.Create(&grant).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SubscriptionMarketService) replaceInboundUpstreamConfigs(tx *gorm.DB, inboundID int, configIDs []int) error {
+	if err := tx.Where("inbound_id = ?", inboundID).Delete(&model.InboundUpstreamConfig{}).Error; err != nil {
+		return err
+	}
+	configIDs = uniquePositiveInts(configIDs)
+	if len(configIDs) == 0 {
+		return nil
+	}
+	var allowedIDs []int
+	if err := tx.Model(&model.UpstreamNodeConfig{}).
+		Where("id IN ?", configIDs).
+		Pluck("id", &allowedIDs).Error; err != nil {
+		return err
+	}
+	sort.Ints(allowedIDs)
+	for _, configID := range allowedIDs {
+		grant := model.InboundUpstreamConfig{InboundId: inboundID, ConfigId: configID}
+		if err := tx.Create(&grant).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SubscriptionMarketService) replaceUpstreamNodeConfigNodes(tx *gorm.DB, upstreamID int, configID int, nodeIDs []int) error {
+	if err := tx.Where("config_id = ?", configID).Delete(&model.UpstreamNodeConfigNode{}).Error; err != nil {
+		return err
+	}
+	nodeIDs = uniquePositiveInts(nodeIDs)
+	if len(nodeIDs) == 0 {
+		return nil
+	}
+	var allowedIDs []int
+	if err := tx.Model(&model.UpstreamNode{}).
+		Where("upstream_id = ? AND id IN ?", upstreamID, nodeIDs).
+		Pluck("id", &allowedIDs).Error; err != nil {
+		return err
+	}
+	sort.Ints(allowedIDs)
+	for _, nodeID := range allowedIDs {
+		item := model.UpstreamNodeConfigNode{ConfigId: configID, NodeId: nodeID}
+		if err := tx.Create(&item).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *SubscriptionMarketService) getUpstreamNodeConfig(configID int) (*UpstreamNodeConfigView, error) {
+	configs, err := s.getUpstreamNodeConfigsByIDs([]int{configID})
+	if err != nil {
+		return nil, err
+	}
+	if len(configs) == 0 {
+		return nil, ErrSubscriptionNotFound
+	}
+	return &configs[0], nil
+}
+
+func (s *SubscriptionMarketService) getUpstreamNodeConfigs(upstreamID int) ([]UpstreamNodeConfigView, error) {
+	db := database.GetDB().
+		Table("upstream_node_configs").
+		Select("upstream_node_configs.id, upstream_node_configs.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_subscriptions.enable, upstream_node_configs.name, upstream_node_configs.created_at, upstream_node_configs.updated_at").
+		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_node_configs.upstream_id").
+		Order("upstream_node_configs.upstream_id desc, upstream_node_configs.id asc")
+	if upstreamID > 0 {
+		db = db.Where("upstream_node_configs.upstream_id = ?", upstreamID)
+	}
+	var configs []UpstreamNodeConfigView
+	if err := db.Scan(&configs).Error; err != nil {
+		return nil, err
+	}
+	return s.fillUpstreamNodeConfigNodeIDs(configs)
+}
+
+func (s *SubscriptionMarketService) getUpstreamNodeConfigsByIDs(configIDs []int) ([]UpstreamNodeConfigView, error) {
+	configIDs = uniquePositiveInts(configIDs)
+	if len(configIDs) == 0 {
+		return nil, nil
+	}
+	var configs []UpstreamNodeConfigView
+	if err := database.GetDB().
+		Table("upstream_node_configs").
+		Select("upstream_node_configs.id, upstream_node_configs.upstream_id, upstream_subscriptions.name AS upstream_name, upstream_subscriptions.enable, upstream_node_configs.name, upstream_node_configs.created_at, upstream_node_configs.updated_at").
+		Joins("JOIN upstream_subscriptions ON upstream_subscriptions.id = upstream_node_configs.upstream_id").
+		Where("upstream_node_configs.id IN ?", configIDs).
+		Order("upstream_node_configs.upstream_id desc, upstream_node_configs.id asc").
+		Scan(&configs).Error; err != nil {
+		return nil, err
+	}
+	return s.fillUpstreamNodeConfigNodeIDs(configs)
+}
+
+func (s *SubscriptionMarketService) fillUpstreamNodeConfigNodeIDs(configs []UpstreamNodeConfigView) ([]UpstreamNodeConfigView, error) {
+	for index := range configs {
+		var nodeIDs []int
+		if err := database.GetDB().
+			Model(model.UpstreamNodeConfigNode{}).
+			Where("config_id = ?", configs[index].Id).
+			Order("node_id asc").
+			Pluck("node_id", &nodeIDs).Error; err != nil {
+			return nil, err
+		}
+		configs[index].NodeIds = nodeIDs
+		configs[index].NodeCount = len(nodeIDs)
+	}
+	return configs, nil
+}
+
+func (s *SubscriptionMarketService) ensureLegacyNodeConfigs(tx *gorm.DB) error {
+	var upstreamIDs []int
+	if err := tx.Model(model.UpstreamNode{}).
+		Where("emergency = ?", true).
+		Distinct().
+		Pluck("upstream_id", &upstreamIDs).Error; err != nil {
+		return err
+	}
+	legacyUpstreamIDs := uniquePositiveInts(upstreamIDs)
+	for _, upstreamID := range legacyUpstreamIDs {
+		var count int64
+		if err := tx.Model(&model.UpstreamNodeConfig{}).Where("upstream_id = ?", upstreamID).Count(&count).Error; err != nil {
+			return err
+		}
+		if count > 0 {
+			continue
+		}
+		var nodeIDs []int
+		if err := tx.Model(model.UpstreamNode{}).
+			Where("upstream_id = ? AND emergency = ?", upstreamID, true).
+			Order("sort asc, id asc").
+			Pluck("id", &nodeIDs).Error; err != nil {
+			return err
+		}
+		if len(nodeIDs) == 0 {
+			continue
+		}
+		config := model.UpstreamNodeConfig{UpstreamId: upstreamID, Name: "默认配置"}
+		if err := tx.Create(&config).Error; err != nil {
+			return err
+		}
+		if err := s.replaceUpstreamNodeConfigNodes(tx, upstreamID, config.Id, nodeIDs); err != nil {
+			return err
+		}
+	}
+	if len(legacyUpstreamIDs) > 0 {
+		if err := tx.Model(&model.UpstreamNode{}).
+			Where("upstream_id IN ? AND emergency = ?", legacyUpstreamIDs, true).
+			Update("emergency", false).Error; err != nil {
+			return err
+		}
+	}
+
+	var legacyGrants []model.InboundEmergencyUpstream
+	if err := tx.Find(&legacyGrants).Error; err != nil {
+		return err
+	}
+	for _, legacy := range legacyGrants {
+		var config model.UpstreamNodeConfig
+		if err := tx.Where("upstream_id = ?", legacy.UpstreamId).Order("id asc").First(&config).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return err
+		}
+		grant := model.InboundUpstreamConfig{InboundId: legacy.InboundId, ConfigId: config.Id}
+		if err := tx.Where("inbound_id = ? AND config_id = ?", grant.InboundId, grant.ConfigId).
+			FirstOrCreate(&grant).Error; err != nil {
+			return err
+		}
+	}
+	if len(legacyGrants) > 0 {
+		if err := tx.Where("1 = 1").Delete(&model.InboundEmergencyUpstream{}).Error; err != nil {
 			return err
 		}
 	}
@@ -1807,6 +2152,11 @@ func transferNodeGrants(tx *gorm.DB, replacements map[int]int) error {
 			return err
 		}
 		if err := tx.Model(&model.InboundSubscriptionNode{}).
+			Where("node_id = ?", oldID).
+			Update("node_id", newID).Error; err != nil {
+			return err
+		}
+		if err := tx.Model(&model.UpstreamNodeConfigNode{}).
 			Where("node_id = ?", oldID).
 			Update("node_id", newID).Error; err != nil {
 			return err

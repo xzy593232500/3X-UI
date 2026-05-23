@@ -69,7 +69,7 @@
             <template slot="action" slot-scope="text, record">
               <a-space>
                 <a-button size="small" icon="cluster" @click="openNodeModal(record)">节点</a-button>
-                <a-button size="small" icon="thunderbolt" @click="openEmergencyModal(record)">应急节点</a-button>
+                <a-button size="small" icon="profile" @click="openConfigModal(record)">节点配置</a-button>
                 <a-button size="small" icon="sync" :loading="syncingId === record.id"
                   @click="syncUpstream(record)"></a-button>
                 <a-button size="small" icon="edit" @click="openUpstreamModal(record)"></a-button>
@@ -131,10 +131,6 @@
       <template slot="sourceType" slot-scope="text, record">
         <a-tag :color="record.sourceType === 'clash' ? 'purple' : 'green'">[[ record.sourceType ]]</a-tag>
       </template>
-      <template slot="emergency" slot-scope="text, record">
-        <a-tag v-if="record.emergency" color="red">应急</a-tag>
-        <span v-else>-</span>
-      </template>
       <template slot="tags" slot-scope="text, record">
         <template v-if="parseNodeTags(record).length">
           <a-tag v-for="tag in parseNodeTags(record)" :key="tag" color="geekblue">[[ tag ]]</a-tag>
@@ -150,35 +146,57 @@
     </a-table>
   </a-modal>
 
-  <a-modal v-model="emergencyModal.visible" :title="'应急节点 - ' + emergencyModal.upstreamName"
-    :confirm-loading="emergencyModal.saving" :class="themeSwitcher.currentTheme" width="900px"
-    @ok="submitEmergencyNodes">
-    <a-alert type="info" show-icon message="选中的节点会作为应急节点；入站列表里打开应急启用后，客户更新订阅会临时获取这些节点。"
+  <a-modal v-model="configModal.visible" :title="'节点配置 - ' + configModal.upstreamName"
+    :confirm-loading="configModal.saving" :class="themeSwitcher.currentTheme" width="980px"
+    @ok="submitNodeConfig">
+    <a-alert type="info" show-icon message="同一个上游订阅可以保存多套节点配置；入站列表里的上游启用会选择具体配置方案。"
       class="mb-10"></a-alert>
-    <a-input v-model="emergencyModal.search" allow-clear class="node-search-input mb-10"
-      placeholder="搜索节点、协议、订阅或标签"></a-input>
-    <div class="node-tag-tools" v-if="emergencyQuickTags.length">
-      <span class="tag-tools-label">自定义标签：</span>
-      <a-tag v-for="tag in emergencyQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
-        [[ tag.label ]] [[ tag.nodeIds.length ]]
-        <a-divider type="vertical"></a-divider>
-        <a @click="applyEmergencyTag(tag, true)">选择</a>
-        <a-divider type="vertical"></a-divider>
-        <a @click="applyEmergencyTag(tag, false)">取消</a>
-      </a-tag>
-    </div>
-    <div class="node-checkbox-group">
-      <a-row :gutter="[8,8]">
-        <a-col v-for="node in filteredEmergencyNodes" :key="node.id" :span="isMobile ? 24 : 12">
-          <a-checkbox :checked="isEmergencyNodeSelected(node.id)"
-            @change="event => setEmergencyNodeSelected(node.id, event.target.checked)">
-            <span class="node-name">[[ node.name ]]</span>
-            <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
-            <a-tag v-for="tag in parseNodeTags(node)" :key="tag" class="ml-5" color="geekblue">[[ tag ]]</a-tag>
-          </a-checkbox>
-        </a-col>
-      </a-row>
-    </div>
+    <a-row :gutter="[12,12]">
+      <a-col :span="isMobile ? 24 : 7">
+        <a-button type="primary" icon="plus" block class="mb-10" @click="newNodeConfig">新建配置</a-button>
+        <div class="config-list">
+          <div v-for="config in configModal.configs" :key="config.id"
+            :class="['config-list-item', configModal.activeConfigId === config.id ? 'active' : '']"
+            @click="selectNodeConfig(config)">
+            <span>[[ config.name ]]</span>
+            <a-tag color="blue">[[ config.nodeCount || 0 ]]</a-tag>
+          </div>
+          <a-empty v-if="configModal.configs.length === 0" description="暂无配置"></a-empty>
+        </div>
+      </a-col>
+      <a-col :span="isMobile ? 24 : 17">
+        <a-space class="config-edit-head">
+          <a-input v-model.trim="configModal.name" placeholder="配置名称，例如：香港高速 / 奈飞专用"
+            class="config-name-input"></a-input>
+          <a-button icon="delete" type="danger" :disabled="!configModal.activeConfigId"
+            @click="deleteNodeConfig">删除当前配置</a-button>
+        </a-space>
+        <a-input v-model="configModal.search" allow-clear class="node-search-input mb-10"
+          placeholder="搜索节点、协议、订阅或标签"></a-input>
+        <div class="node-tag-tools" v-if="configQuickTags.length">
+          <span class="tag-tools-label">自定义标签：</span>
+          <a-tag v-for="tag in configQuickTags" :key="tag.label" color="blue" class="quick-node-tag">
+            [[ tag.label ]] [[ tag.nodeIds.length ]]
+            <a-divider type="vertical"></a-divider>
+            <a @click="applyConfigTag(tag, true)">选择</a>
+            <a-divider type="vertical"></a-divider>
+            <a @click="applyConfigTag(tag, false)">取消</a>
+          </a-tag>
+        </div>
+        <div class="node-checkbox-group">
+          <a-row :gutter="[8,8]">
+            <a-col v-for="node in filteredConfigNodes" :key="node.id" :span="isMobile ? 24 : 12">
+              <a-checkbox :checked="isConfigNodeSelected(node.id)"
+                @change="event => setConfigNodeSelected(node.id, event.target.checked)">
+                <span class="node-name">[[ node.name ]]</span>
+                <a-tag class="ml-5" :color="node.sourceType === 'clash' ? 'purple' : 'green'">[[ node.protocol ]]</a-tag>
+                <a-tag v-for="tag in parseNodeTags(node)" :key="tag" class="ml-5" color="geekblue">[[ tag ]]</a-tag>
+              </a-checkbox>
+            </a-col>
+          </a-row>
+        </div>
+      </a-col>
+    </a-row>
   </a-modal>
 </a-layout>
 
@@ -269,13 +287,6 @@
       width: 90
     },
     {
-      title: '应急',
-      scopedSlots: {
-        customRender: 'emergency'
-      },
-      width: 80
-    },
-    {
       title: '标签',
       scopedSlots: {
         customRender: 'tags'
@@ -321,12 +332,16 @@
         tagInput: '',
         selectedRowKeys: [],
       },
-      emergencyModal: {
+      configModal: {
         visible: false,
         saving: false,
+        loading: false,
         upstreamId: null,
         upstreamName: '',
         nodes: [],
+        configs: [],
+        activeConfigId: null,
+        name: '',
         nodeIds: [],
         search: '',
       },
@@ -335,14 +350,14 @@
       filteredNodeModalNodes() {
         return this.filterNodes(this.nodeModal.nodes, this.nodeModal.search);
       },
-      filteredEmergencyNodes() {
-        return this.filterNodes(this.emergencyModal.nodes, this.emergencyModal.search);
+      filteredConfigNodes() {
+        return this.filterNodes(this.configModal.nodes, this.configModal.search);
       },
       nodeQuickTags() {
         return this.buildNodeQuickTags(this.filteredNodeModalNodes);
       },
-      emergencyQuickTags() {
-        return this.buildNodeQuickTags(this.filteredEmergencyNodes);
+      configQuickTags() {
+        return this.buildNodeQuickTags(this.filteredConfigNodes);
       },
       nodeRowSelection() {
         return {
@@ -367,10 +382,9 @@
               const current = this.upstreams.find(item => item.id === this.nodeModal.upstreamId);
               this.nodeModal.nodes = current && Array.isArray(current.nodes) ? current.nodes : [];
             }
-            if (this.emergencyModal.visible) {
-              const current = this.upstreams.find(item => item.id === this.emergencyModal.upstreamId);
-              this.emergencyModal.nodes = current && Array.isArray(current.nodes) ? current.nodes : [];
-              this.emergencyModal.nodeIds = this.emergencyModal.nodes.filter(node => node.emergency).map(node => node.id);
+            if (this.configModal.visible) {
+              const current = this.upstreams.find(item => item.id === this.configModal.upstreamId);
+              this.configModal.nodes = current && Array.isArray(current.nodes) ? current.nodes : [];
             }
           }
         } finally {
@@ -500,32 +514,61 @@
           await this.loadAll();
         }
       },
-      async openEmergencyModal(record) {
-        this.emergencyModal.upstreamId = record.id;
-        this.emergencyModal.upstreamName = record.name;
-        this.emergencyModal.nodes = Array.isArray(record.nodes) ? record.nodes : [];
-        this.emergencyModal.nodeIds = this.emergencyModal.nodes.filter(node => node.emergency).map(node => node.id);
-        this.emergencyModal.search = '';
-        this.emergencyModal.visible = true;
-        const msg = await HttpUtil.get(`/panel/api/subscription-market/upstreams/${record.id}/emergency-nodes`);
-        if (msg.success && Array.isArray(msg.obj)) {
-          this.emergencyModal.nodeIds = msg.obj.slice();
+      async openConfigModal(record) {
+        this.configModal.upstreamId = record.id;
+        this.configModal.upstreamName = record.name;
+        this.configModal.nodes = Array.isArray(record.nodes) ? record.nodes : [];
+        this.configModal.configs = [];
+        this.configModal.activeConfigId = null;
+        this.configModal.name = '';
+        this.configModal.nodeIds = [];
+        this.configModal.search = '';
+        this.configModal.visible = true;
+        await this.loadNodeConfigs(record.id);
+      },
+      async loadNodeConfigs(upstreamId) {
+        this.configModal.loading = true;
+        try {
+          const msg = await HttpUtil.get(`/panel/api/subscription-market/upstreams/${upstreamId}/node-configs`);
+          if (msg.success && Array.isArray(msg.obj)) {
+            this.configModal.configs = msg.obj;
+            if (this.configModal.configs.length > 0) {
+              const current = this.configModal.configs.find(item => item.id === this.configModal.activeConfigId) ||
+                this.configModal.configs[0];
+              this.selectNodeConfig(current);
+            } else {
+              this.newNodeConfig();
+            }
+          }
+        } finally {
+          this.configModal.loading = false;
         }
       },
-      isEmergencyNodeSelected(nodeId) {
-        return this.emergencyModal.nodeIds.includes(nodeId);
+      newNodeConfig() {
+        this.configModal.activeConfigId = null;
+        this.configModal.name = '新配置';
+        this.configModal.nodeIds = [];
       },
-      setEmergencyNodeSelected(nodeId, checked) {
-        const selected = new Set(this.emergencyModal.nodeIds);
+      selectNodeConfig(config) {
+        if (!config) return;
+        this.configModal.activeConfigId = config.id;
+        this.configModal.name = config.name;
+        this.configModal.nodeIds = Array.isArray(config.nodeIds) ? config.nodeIds.slice() : [];
+      },
+      isConfigNodeSelected(nodeId) {
+        return this.configModal.nodeIds.includes(nodeId);
+      },
+      setConfigNodeSelected(nodeId, checked) {
+        const selected = new Set(this.configModal.nodeIds);
         if (checked) {
           selected.add(nodeId);
         } else {
           selected.delete(nodeId);
         }
-        this.emergencyModal.nodeIds = Array.from(selected);
+        this.configModal.nodeIds = Array.from(selected);
       },
-      applyEmergencyTag(tag, checked) {
-        const selected = new Set(this.emergencyModal.nodeIds);
+      applyConfigTag(tag, checked) {
+        const selected = new Set(this.configModal.nodeIds);
         for (const id of tag.nodeIds || []) {
           if (checked) {
             selected.add(id);
@@ -533,22 +576,51 @@
             selected.delete(id);
           }
         }
-        this.emergencyModal.nodeIds = Array.from(selected);
+        this.configModal.nodeIds = Array.from(selected);
       },
-      async submitEmergencyNodes() {
-        if (!this.emergencyModal.upstreamId) return;
-        this.emergencyModal.saving = true;
+      async submitNodeConfig() {
+        if (!this.configModal.upstreamId) return;
+        if (!this.configModal.name.trim()) {
+          this.$message.error('配置名称不能为空');
+          return;
+        }
+        this.configModal.saving = true;
         try {
-          const msg = await HttpUtil.post(`/panel/api/subscription-market/upstreams/${this.emergencyModal.upstreamId}/emergency-nodes`, {
-            nodeIds: this.emergencyModal.nodeIds
+          const url = this.configModal.activeConfigId ?
+            `/panel/api/subscription-market/upstreams/${this.configModal.upstreamId}/node-configs/update/${this.configModal.activeConfigId}` :
+            `/panel/api/subscription-market/upstreams/${this.configModal.upstreamId}/node-configs/add`;
+          const msg = await HttpUtil.post(url, {
+            name: this.configModal.name,
+            nodeIds: this.configModal.nodeIds
           });
           if (msg.success) {
-            this.emergencyModal.visible = false;
+            if (msg.obj && msg.obj.id) {
+              this.configModal.activeConfigId = msg.obj.id;
+            }
+            await this.loadNodeConfigs(this.configModal.upstreamId);
             await this.loadAll();
           }
         } finally {
-          this.emergencyModal.saving = false;
+          this.configModal.saving = false;
         }
+      },
+      deleteNodeConfig() {
+        if (!this.configModal.upstreamId || !this.configModal.activeConfigId) return;
+        this.$confirm({
+          title: '删除节点配置',
+          content: `确定删除「${this.configModal.name}」吗？`,
+          okText: '删除',
+          cancelText: '取消',
+          class: themeSwitcher.currentTheme,
+          onOk: async () => {
+            const msg = await HttpUtil.post(
+              `/panel/api/subscription-market/upstreams/${this.configModal.upstreamId}/node-configs/delete/${this.configModal.activeConfigId}`);
+            if (msg.success) {
+              await this.loadNodeConfigs(this.configModal.upstreamId);
+              await this.loadAll();
+            }
+          },
+        });
       },
       async submitUpstream() {
         const form = this.upstreamModal.form;
@@ -693,6 +765,42 @@
 
   .node-tag-input {
     width: 180px;
+  }
+
+  .config-list {
+    display: grid;
+    gap: 8px;
+    max-height: 430px;
+    overflow: auto;
+  }
+
+  .config-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    cursor: pointer;
+    padding: 9px 10px;
+    border: 1px solid rgba(24, 144, 255, .18);
+    border-radius: 8px;
+    transition: background .15s ease, border-color .15s ease, box-shadow .15s ease;
+  }
+
+  .config-list-item:hover,
+  .config-list-item.active {
+    background: rgba(24, 144, 255, .08);
+    border-color: rgba(24, 144, 255, .45);
+    box-shadow: 0 4px 12px rgba(24, 144, 255, .14);
+  }
+
+  .config-edit-head {
+    display: flex;
+    flex-wrap: wrap;
+    margin-bottom: 10px;
+  }
+
+  .config-name-input {
+    width: 280px;
   }
 
   .node-tag-tools {
