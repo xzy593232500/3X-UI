@@ -259,8 +259,11 @@ func (s *SubService) genVmessLink(inbound *model.Inbound, email string) string {
 	obj := map[string]any{
 		"v":    "2",
 		"add":  address,
-		"port": inbound.Port,
+		"port": strconv.Itoa(inbound.Port),
 		"type": "none",
+		"host": "",
+		"path": "",
+		"aid":  "0",
 	}
 	stream := unmarshalStreamSettings(inbound.StreamSettings)
 	network, _ := stream["network"].(string)
@@ -269,7 +272,7 @@ func (s *SubService) genVmessLink(inbound *model.Inbound, email string) string {
 		applyFinalMaskObj(finalmask, obj)
 	}
 	security, _ := stream["security"].(string)
-	obj["tls"] = security
+	obj["tls"] = vmessShareTLSValue(security)
 	if security == "tls" {
 		applyVmessTLSParams(stream, obj)
 	}
@@ -828,6 +831,13 @@ func buildVmessLink(obj map[string]any) string {
 	return "vmess://" + base64.StdEncoding.EncodeToString(jsonStr)
 }
 
+func vmessShareTLSValue(security string) string {
+	if security == "" || security == "none" {
+		return ""
+	}
+	return security
+}
+
 func cloneVmessShareObj(baseObj map[string]any, newSecurity string) map[string]any {
 	newObj := map[string]any{}
 	for key, value := range baseObj {
@@ -850,10 +860,10 @@ func (s *SubService) buildVmessExternalProxyLinks(externalProxies []any, baseObj
 		if !ok {
 			continue
 		}
-		newObj["port"] = port
+		newObj["port"] = strconv.Itoa(port)
 
 		if newSecurity != "same" {
-			newObj["tls"] = newSecurity
+			newObj["tls"] = vmessShareTLSValue(newSecurity)
 		}
 		if index > 0 {
 			links.WriteString("\n")
