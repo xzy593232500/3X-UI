@@ -392,7 +392,32 @@
                       </template>
                     </template>
                     <template slot="deviceLimit" slot-scope="text, dbInbound">
-                      <span v-if="dbInbound.deviceLimit > 0">[[ dbInbound.deviceLimit ]]</span>
+                      <template v-if="dbInbound.deviceLimit > 0">
+                        <a-popover title='已连接 IP' :overlay-class-name="themeSwitcher.currentTheme">
+                          <template slot="content">
+                            <div v-if="getDeviceLimitIPs(dbInbound).length">
+                              <div v-for="item in getDeviceLimitIPs(dbInbound)" :key="item.ip"
+                                class="client-popup-item">
+                                <span>[[ item.ip ]]</span>
+                                <a-tag v-if="item.banned" :style="{ marginLeft: '6px' }" color="red">已限制</a-tag>
+                                <a-tooltip :overlay-class-name="themeSwitcher.currentTheme">
+                                  <template #title>
+                                    首次：[[ formatDeviceLimitSeen(item.firstSeen) ]]
+                                    <br>
+                                    最近：[[ formatDeviceLimitSeen(item.lastSeen) ]]
+                                  </template>
+                                  <a-icon type="info-circle"></a-icon>
+                                </a-tooltip>
+                              </div>
+                            </div>
+                            <span v-else>暂无连接</span>
+                          </template>
+                          <a-tag :style="{ margin: '0' }"
+                            :color="deviceLimitActiveCount(dbInbound) > dbInbound.deviceLimit ? 'red' : 'blue'">
+                            [[ deviceLimitActiveCount(dbInbound) ]] / [[ dbInbound.deviceLimit ]]
+                          </a-tag>
+                        </a-popover>
+                      </template>
                       <span v-else>{{ i18n "unlimited" }}</span>
                     </template>
                     <template slot="traffic" slot-scope="text, dbInbound">
@@ -590,7 +615,32 @@
                             <tr>
                               <td>{{ i18n "pages.inbounds.deviceLimit" }}</td>
                               <td>
-                                <a-tag v-if="dbInbound.deviceLimit > 0">[[ dbInbound.deviceLimit ]]</a-tag>
+                                <a-popover v-if="dbInbound.deviceLimit > 0" title='已连接 IP'
+                                  :overlay-class-name="themeSwitcher.currentTheme">
+                                  <template slot="content">
+                                    <div v-if="getDeviceLimitIPs(dbInbound).length">
+                                      <div v-for="item in getDeviceLimitIPs(dbInbound)" :key="item.ip"
+                                        class="client-popup-item">
+                                        <span>[[ item.ip ]]</span>
+                                        <a-tag v-if="item.banned" :style="{ marginLeft: '6px' }"
+                                          color="red">已限制</a-tag>
+                                        <a-tooltip :overlay-class-name="themeSwitcher.currentTheme">
+                                          <template #title>
+                                            首次：[[ formatDeviceLimitSeen(item.firstSeen) ]]
+                                            <br>
+                                            最近：[[ formatDeviceLimitSeen(item.lastSeen) ]]
+                                          </template>
+                                          <a-icon type="info-circle"></a-icon>
+                                        </a-tooltip>
+                                      </div>
+                                    </div>
+                                    <span v-else>暂无连接</span>
+                                  </template>
+                                  <a-tag
+                                    :color="deviceLimitActiveCount(dbInbound) > dbInbound.deviceLimit ? 'red' : 'blue'">
+                                    [[ deviceLimitActiveCount(dbInbound) ]] / [[ dbInbound.deviceLimit ]]
+                                  </a-tag>
+                                </a-popover>
                                 <a-tag v-else color="purple">{{ i18n "unlimited" }}</a-tag>
                               </td>
                             </tr>
@@ -1315,6 +1365,7 @@
       clientCount: [],
       onlineClients: [],
       lastOnlineMap: {},
+      deviceLimitIPs: {},
       upstreamNodes: [],
       inboundUpstreamModal: {
         visible: false,
@@ -2741,6 +2792,21 @@
         // Fallback to simple date formatting if IntlUtil is not available
         return new Date(ts).toLocaleString()
       },
+      getDeviceLimitIPs(dbInbound) {
+        if (!dbInbound || !this.deviceLimitIPs) return [];
+        const list = this.deviceLimitIPs[dbInbound.id] || this.deviceLimitIPs[String(dbInbound.id)] || [];
+        return Array.isArray(list) ? list : [];
+      },
+      deviceLimitActiveCount(dbInbound) {
+        return this.getDeviceLimitIPs(dbInbound).length;
+      },
+      formatDeviceLimitSeen(ts) {
+        if (!ts) return '-';
+        if (typeof IntlUtil !== 'undefined' && IntlUtil.formatDate) {
+          return IntlUtil.formatDate(ts);
+        }
+        return new Date(ts).toLocaleString();
+      },
       isRemovable(dbInboundId) {
         return this.getInboundClients(this.dbInbounds.find(row => row.id === dbInboundId)).length > 1;
       },
@@ -2947,6 +3013,10 @@
           // Replace entirely (server sends the full map) to avoid unbounded growth from deleted clients
           if (payload && payload.lastOnlineMap && typeof payload.lastOnlineMap === 'object') {
             this.lastOnlineMap = payload.lastOnlineMap;
+          }
+
+          if (payload && payload.deviceLimitIPs && typeof payload.deviceLimitIPs === 'object') {
+            this.deviceLimitIPs = payload.deviceLimitIPs;
           }
         });
 

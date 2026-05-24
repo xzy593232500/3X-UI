@@ -19,6 +19,7 @@ import (
 	"github.com/mhsanaei/3x-ui/v2/database/model"
 	"github.com/mhsanaei/3x-ui/v2/logger"
 	"github.com/mhsanaei/3x-ui/v2/web/service"
+	"github.com/mhsanaei/3x-ui/v2/web/websocket"
 	"github.com/mhsanaei/3x-ui/v2/xray"
 )
 
@@ -79,6 +80,7 @@ func (j *CheckDeviceLimitJob) Run() {
 	j.cleanupExpiredIPs()
 	j.parseAccessLog()
 	j.checkInboundDeviceLimits()
+	j.broadcastActiveInboundIPs()
 }
 
 func (j *CheckDeviceLimitJob) cleanupExpiredIPs() {
@@ -268,6 +270,48 @@ func (j *CheckDeviceLimitJob) checkInboundDeviceLimits() {
 			}
 		}
 	}
+}
+
+func (j *CheckDeviceLimitJob) broadcastActiveInboundIPs() {
+	if !websocket.HasClients() {
+		return
+	}
+
+	payload := make(map[int][]map[string]any, len(j.activeInboundIPs))
+	for inboundID, ips := range j.activeInboundIPs {
+		if len(ips) == 0 {
+			continue
+		}
+
+		items := make([]struct {
+			IP    string
+			State deviceIPState
+		}, 0, len(ips))
+		for ip, state := range ips {
+			items = append(items, struct {
+				IP    string
+				State deviceIPState
+			}{IP: ip, State: state})
+		}
+		sort.Slice(items, func(i, k int) bool {
+			return items[i].State.FirstSeen.Before(items[k].State.FirstSeen)
+		})
+
+		rows := make([]map[string]any, 0, len(items))
+		for _, item := range items {
+			rows = append(rows, map[string]any{
+				"ip":        item.IP,
+				"firstSeen": item.State.FirstSeen.UnixMilli(),
+				"lastSeen":  item.State.LastSeen.UnixMilli(),
+				"banned":    j.isInboundIPBanned(inboundID, item.IP),
+			})
+		}
+		payload[inboundID] = rows
+	}
+
+	websocket.BroadcastTraffic(map[string]any{
+		"deviceLimitIPs": payload,
+	})
 }
 
 func (j *CheckDeviceLimitJob) isInboundIPBanned(inboundID int, ip string) bool {
