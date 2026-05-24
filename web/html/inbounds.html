@@ -306,7 +306,7 @@
                     </template>
                     <template slot="clients" slot-scope="text, dbInbound">
                       <template v-if="clientCount[dbInbound.id]">
-                        <a-tag :style="{ margin: '0' }" color="green">[[
+                        <a-tag class="count-dot-tag" :style="{ margin: '0' }" color="green">[[
                           clientCount[dbInbound.id].clients ]]</a-tag>
                         <a-popover title='{{ i18n "disabled" }}' :overlay-class-name="themeSwitcher.currentTheme">
                           <template slot="content">
@@ -384,7 +384,7 @@
                               </a-tooltip>
                             </div>
                           </template>
-                          <a-tag :style="{ margin: '0', padding: '0 2px' }" color="blue"
+                          <a-tag class="count-dot-tag" :style="{ margin: '0', padding: '0 2px' }" color="blue"
                             v-if="clientCount[dbInbound.id].online.length">[[
                             clientCount[dbInbound.id].online.length
                             ]]</a-tag>
@@ -393,7 +393,7 @@
                     </template>
                     <template slot="deviceLimit" slot-scope="text, dbInbound">
                       <template v-if="dbInbound.deviceLimit > 0">
-                        <a-tag :style="{ margin: '0', padding: '0 2px' }" color="green">
+                        <a-tag class="count-dot-tag" :style="{ margin: '0', padding: '0 2px' }" color="green">
                           [[ dbInbound.deviceLimit ]]
                         </a-tag>
                         <a-popover title='已连接 IP' :overlay-class-name="themeSwitcher.currentTheme">
@@ -415,7 +415,7 @@
                             </div>
                             <span v-else>暂无连接</span>
                           </template>
-                          <a-tag :style="{ margin: '0', padding: '0 2px' }" color="blue">
+                          <a-tag class="count-dot-tag" :style="{ margin: '0', padding: '0 2px' }" color="blue">
                             [[ deviceLimitActiveCount(dbInbound) ]]
                           </a-tag>
                         </a-popover>
@@ -618,7 +618,7 @@
                               <td>{{ i18n "pages.inbounds.deviceLimit" }}</td>
                               <td>
                                 <template v-if="dbInbound.deviceLimit > 0">
-                                  <a-tag color="green">[[ dbInbound.deviceLimit ]]</a-tag>
+                                  <a-tag class="count-dot-tag" color="green">[[ dbInbound.deviceLimit ]]</a-tag>
                                   <a-popover title='已连接 IP' :overlay-class-name="themeSwitcher.currentTheme">
                                     <template slot="content">
                                       <div v-if="getDeviceLimitIPs(dbInbound).length">
@@ -639,7 +639,7 @@
                                       </div>
                                       <span v-else>暂无连接</span>
                                     </template>
-                                    <a-tag color="blue">[[ deviceLimitActiveCount(dbInbound) ]]</a-tag>
+                                    <a-tag class="count-dot-tag" color="blue">[[ deviceLimitActiveCount(dbInbound) ]]</a-tag>
                                   </a-popover>
                                 </template>
                                 <a-tag v-else color="purple">{{ i18n "unlimited" }}</a-tag>
@@ -3198,6 +3198,21 @@
   .inbound-sort-button.active {
     color: var(--color-primary-100);
     opacity: 1;
+  }
+
+  .count-dot-tag.ant-tag {
+    width: 22px;
+    min-width: 22px;
+    height: 22px;
+    padding: 0 !important;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 20px;
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
   }
 
   .traffic-reset-stat-action {
